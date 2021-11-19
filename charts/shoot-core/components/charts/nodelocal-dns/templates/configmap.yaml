@@ -4,8 +4,10 @@ kind: ConfigMap
 metadata:
   name: {{ include "node-local-dns.config.name" . }}
   namespace: kube-system
-  labels:
-    resources.gardener.cloud/garbage-collectable-reference: "true"
-immutable: true
-data:
-{{ include "node-local-dns.config.data" . | indent 2 }}
+  annotations:
+    resources.gardener.cloud/mode: Ignore
+#   labels:
+#     resources.gardener.cloud/garbage-collectable-reference: "true"
+# immutable: true
+# data:
+# {{ include "node-local-dns.config.data" . | indent 2 }}

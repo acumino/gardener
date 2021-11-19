@@ -40,6 +40,7 @@ import (
 	"github.com/gardener/gardener/pkg/operation/botanist/component/kubecontrollermanager"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/kubescheduler"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/metricsserver"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/nodelocaldns"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/resourcemanager"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/vpnseedserver"
 	"github.com/gardener/gardener/pkg/operation/etcdencryption"
@@ -143,6 +144,7 @@ type SystemComponents struct {
 	ClusterIdentity clusteridentity.Interface
 	Namespaces      component.DeployWaiter
 	CoreDNS         coredns.Interface
+	NodeLocalDNS    nodelocaldns.Interface
 	MetricsServer   metricsserver.Interface
 }
 

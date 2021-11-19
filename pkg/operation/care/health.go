@@ -31,6 +31,7 @@ import (
 	"github.com/gardener/gardener/pkg/operation/botanist"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/coredns"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/kubeapiserver"
+	"github.com/gardener/gardener/pkg/operation/botanist/component/nodelocaldns"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils/flow"
@@ -300,6 +301,8 @@ func init() {
 	utilruntime.Must(err)
 	versionConstraintGreaterEqual132, err = semver.NewConstraint(">= 1.32")
 	utilruntime.Must(err)
+	versionConstraintGreaterEqual136, err = semver.NewConstraint(">= 1.36")
+	utilruntime.Must(err)
 }
 
 // checkSystemComponents checks whether the system components of a Shoot are running.
@@ -321,6 +324,11 @@ func (h *Health) checkSystemComponents(
 	if versionConstraintGreaterEqual132.Check(checker.gardenerVersion) {
 		// TODO: Add this ManagedResource unconditionally to the `managedResourcesShoot` in a future version.
 		managedResources = append(managedResources, coredns.ManagedResourceName)
+	}
+
+	if versionConstraintGreaterEqual136.Check(checker.gardenerVersion) && h.shoot.NodeLocalDNSEnabled {
+		// TODO(acumino): Add this ManagedResource unconditionally to the `managedResourcesShoot` in a future version.
+		managedResources = append(managedResources, nodelocaldns.ManagedResourceName)
 	}
 
 	for _, name := range managedResources {
