@@ -15,12 +15,61 @@
 package botanist_test
 
 import (
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	mockkubernetes "github.com/gardener/gardener/pkg/client/kubernetes/mock"
+	"github.com/gardener/gardener/pkg/operation"
 	. "github.com/gardener/gardener/pkg/operation/botanist"
+	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
+	"github.com/golang/mock/gomock"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("NodeLocalDNS", func() {
+	var (
+		ctrl     *gomock.Controller
+		botanist *Botanist
+	)
 
+	BeforeEach(func() {
+		ctrl = gomock.NewController(GinkgoT())
+		botanist = &Botanist{Operation: &operation.Operation{}}
+		botanist.Shoot = &shootpkg.Shoot{}
+		botanist.Shoot.SetInfo(&gardencorev1beta1.Shoot{})
+	})
+
+	AfterEach(func() {
+		ctrl.Finish()
+	})
+
+	Describe("#DefaultNodeLocalDNS", func() {
+		var kubernetesClient *mockkubernetes.MockInterface
+
+		BeforeEach(func() {
+			kubernetesClient = mockkubernetes.NewMockInterface(ctrl)
+
+			botanist.K8sSeedClient = kubernetesClient
+			botanist.Shoot.Networks = 
+		})
+
+		It("should successfully create a coredns interface", func() {
+			// defer test.WithFeatureGate(gardenletfeatures.FeatureGate, features.APIServerSNI, false)()
+
+			kubernetesClient.EXPECT().Client()
+			botanist.ImageVector = imagevector.ImageVector{{Name: "node-local-dns"}}
+
+			nodeLocalDNS, err := botanist.DefaultCoreDNS()
+			Expect(nodeLocalDNS).NotTo(BeNil())
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("should return an error because the image cannot be found", func() {
+			botanist.ImageVector = imagevector.ImageVector{}
+
+			coreDNS, err := botanist.DefaultCoreDNS()
+			Expect(coreDNS).To(BeNil())
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })

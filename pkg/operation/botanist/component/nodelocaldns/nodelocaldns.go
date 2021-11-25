@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
 	appsv1 "k8s.io/api/apps/v1"
@@ -210,7 +211,7 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 			},
 		}
 
-		clusterRoleBinding = &rbacv1.ClusterRoleBinding{
+		roleBinding = &rbacv1.RoleBinding{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "gardener.cloud:psp:node-local-dns",
 				Namespace: metav1.NamespaceSystem,
@@ -238,53 +239,54 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 			},
 			Data: map[string]string{
 				configDataKey: `` + domain + `:53 {
-					errors
-					cache {
-							success 9984 30
-							denial 9984 5
-					}
-					reload
-					loop
-					bind ` + nodeLocal + ` ` + c.values.DNSServer + `
-					forward . ` + c.values.ClusterDNS + `{
-					` + c.forceTcpToClusterDNS() + `
-						}
-					prometheus :` + strconv.Itoa(prometheusPort) + `
-					health ` + nodeLocal + `:8080
-					}
-					in-addr.arpa:53 {
-					errors
-					cache 30
-					reload
-					loop
-					bind ` + nodeLocal + ` ` + c.values.DNSServer + `
-					forward . ` + c.values.ClusterDNS + `{
-					` + c.forceTcpToClusterDNS() + `
-					}
-					prometheus :` + strconv.Itoa(prometheusPort) + `
-					}
-					ip6.arpa:53 {
-					errors
-					cache 30
-					reload
-					loop
-					bind ` + nodeLocal + ` ` + c.values.DNSServer + `
-					forward . ` + c.values.ClusterDNS + `{
-					` + c.forceTcpToClusterDNS() + `
-					}
-					prometheus :` + strconv.Itoa(prometheusPort) + `
-					}
-					.:53 {
-					errors
-					cache 30
-					reload
-					loop
-					bind ` + nodeLocal + ` ` + c.values.DNSServer + `
-					forward . __PILLAR__UPSTREAM__SERVERS__ {
-					` + c.forceTcpToUpstreamDNS() + `
-					}
-					prometheus :` + strconv.Itoa(prometheusPort) + `
-					}`,
+  errors
+  cache {
+    success 9984 30
+    denial 9984 5
+  }
+  reload
+  loop
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  forward . ` + c.values.ClusterDNS + ` {
+    ` + c.forceTcpToClusterDNS() + `
+  }
+  prometheus :` + strconv.Itoa(prometheusPort) + `
+  health ` + nodeLocal + `:8080
+  }
+in-addr.arpa:53 {
+  errors
+  cache 30
+  reload
+  loop
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  forward . ` + c.values.ClusterDNS + ` {
+    ` + c.forceTcpToClusterDNS() + `
+  }
+  prometheus :` + strconv.Itoa(prometheusPort) + `
+  }
+ip6.arpa:53 {
+  errors
+  cache 30
+  reload
+  loop
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  forward . ` + c.values.ClusterDNS + ` {
+    ` + c.forceTcpToClusterDNS() + `
+  }
+  prometheus :` + strconv.Itoa(prometheusPort) + `
+  }
+.:53 {
+  errors
+  cache 30
+  reload
+  loop
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  forward . __PILLAR__UPSTREAM__SERVERS__ {
+    ` + c.forceTcpToUpstreamDNS() + `
+  }
+  prometheus :` + strconv.Itoa(prometheusPort) + `
+  }
+`,
 			},
 		}
 
@@ -299,7 +301,7 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 				},
 			},
 			Spec: corev1.ServiceSpec{
-				Selector: map[string]string{LabelKey: LabelValue},
+				Selector: map[string]string{LabelKey: "kube-dns"},
 				Ports: []corev1.ServicePort{
 					{
 						Name:       "dns",
@@ -330,7 +332,7 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 			Spec: appsv1.DaemonSetSpec{
 				UpdateStrategy: appsv1.DaemonSetUpdateStrategy{
 					RollingUpdate: &appsv1.RollingUpdateDaemonSet{
-						MaxUnavailable: &intstr.IntOrString{StrVal: "10%"},
+						MaxUnavailable: &intstr.IntOrString{IntVal: 10},
 					},
 				},
 				Selector: &metav1.LabelSelector{
@@ -341,8 +343,8 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: map[string]string{
-							"k8s-app":                          "node-local-dns",
-							"networking.gardener.cloud/to-dns": "allowed",
+							"k8s-app":                                "node-local-dns",
+							v1beta1constants.LabelNetworkPolicyToDNS: "allowed",
 						},
 						Annotations: map[string]string{
 							"prometheus.io/port":   strconv.Itoa(prometheusPort),
@@ -383,8 +385,8 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 									},
 								},
 								Args: []string{
-									"-localip", //Todo add if else condition
-									nodeLocal,
+									"-localip",
+									c.containerArg(),
 									"-conf",
 									"\"/etc/Corefile\"",
 									"-upstreamsvc",
@@ -520,12 +522,19 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 		serviceAccount,
 		podSecurityPolicy,
 		clusterRole,
-		clusterRoleBinding,
+		roleBinding,
 		configMap,
 		service,
 		daemonset,
 		vpa,
 	)
+}
+func (c *nodeLocalDNS) containerArg() string {
+	if c.values.DNSServer != "" {
+		return nodeLocal + "," + c.values.DNSServer
+	} else {
+		return nodeLocal
+	}
 }
 func (c *nodeLocalDNS) forceTcpToClusterDNS() string {
 	if c.values.ForceTcpToClusterDNS {
@@ -535,7 +544,7 @@ func (c *nodeLocalDNS) forceTcpToClusterDNS() string {
 	}
 }
 func (c *nodeLocalDNS) forceTcpToUpstreamDNS() string {
-	if c.values.ForceTcpToClusterDNS {
+	if c.values.ForceTcpToUpstreamDNS {
 		return "force_tcp"
 	} else {
 		return "prefer_udp"

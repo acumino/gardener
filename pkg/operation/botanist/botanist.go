@@ -151,14 +151,14 @@ func New(ctx context.Context, o *operation.Operation) (*Botanist, error) {
 	if err != nil {
 		return nil, err
 	}
-	//TODO(acumino): Need to add when node local dns is enabled
+
 	if o.Shoot.NodeLocalDNSEnabled {
 		o.Shoot.Components.SystemComponents.NodeLocalDNS, err = b.DefaultNodeLocalDNS()
 		if err != nil {
 			return nil, err
-		} else {
-			o.Shoot.Components.SystemComponents.NodeLocalDNS = nil
 		}
+	} else {
+		o.Shoot.Components.SystemComponents.NodeLocalDNS = nil
 	}
 
 	o.Shoot.Components.SystemComponents.MetricsServer, err = b.DefaultMetricsServer()
