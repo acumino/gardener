@@ -238,17 +238,17 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
 				Namespace: metav1.NamespaceSystem,
 			},
 			Data: map[string]string{
-				configDataKey: `` + domain + `:53 {
+				configDataKey: domain + `:53 {
   errors
   cache {
-    success 9984 30
-    denial 9984 5
+          success 9984 30
+          denial 9984 5
   }
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + nodeLocal + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
-    ` + c.forceTcpToClusterDNS() + `
+          ` + c.forceTcpToClusterDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   health ` + nodeLocal + `:8080
@@ -258,34 +258,35 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + nodeLocal + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
-    ` + c.forceTcpToClusterDNS() + `
+          ` + c.forceTcpToClusterDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-ip6.arpa:53 {
+.ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + nodeLocal + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
-    ` + c.forceTcpToClusterDNS() + `
+          ` + c.forceTcpToClusterDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.:53 {
+.53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + nodeLocal + c.values.DNSServer + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
-    ` + c.forceTcpToUpstreamDNS() + `
+          ` + c.forceTcpToUpstreamDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
+}
 `,
 			},
 		}
@@ -434,7 +435,7 @@ ip6.arpa:53 {
 										Name:      "config-volume",
 									},
 									{
-										MountPath: " /etc/kube-dns",
+										MountPath: "/etc/kube-dns",
 										Name:      "kube-dns-config",
 									},
 								},
@@ -447,17 +448,6 @@ ip6.arpa:53 {
 									HostPath: &corev1.HostPathVolumeSource{
 										Path: "/run/xtables.lock",
 										Type: &hostPathFileOrCreate,
-									},
-								},
-							},
-							{
-								Name: "kube-dns-config",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "kube-dns",
-										},
-										Optional: pointer.Bool(true),
 									},
 								},
 							},
@@ -477,6 +467,17 @@ ip6.arpa:53 {
 									},
 								},
 							},
+							{
+								Name: "kube-dns-config",
+								VolumeSource: corev1.VolumeSource{
+									ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kube-dns",
+										},
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
 						},
 					},
 				},
@@ -485,7 +486,7 @@ ip6.arpa:53 {
 		vpa *autoscalingv1beta2.VerticalPodAutoscaler
 	)
 	utilruntime.Must(kutil.MakeUnique(configMap))
-	daemonset.Spec.Template.Spec.Volumes[2].VolumeSource.ConfigMap.LocalObjectReference.Name = configMap.Name
+	daemonset.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap.LocalObjectReference.Name = configMap.Name
 	utilruntime.Must(references.InjectAnnotations(daemonset))
 	if c.values.VPAEnabled {
 		vpaUpdateMode := autoscalingv1beta2.UpdateModeAuto

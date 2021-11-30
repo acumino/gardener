@@ -161,21 +161,60 @@ subjects:
   name: node-local-dns
   namespace: kube-system
 `
-			configMapYAML = func() string { //todo cluster.local
-				dataKey := "Corefile"
-				dataValue := `"` + gardencorev1beta1.DefaultDomain + `:53 {\n  errors\n  cache {\n    success 9984 30\n    denial
-    9984 5\n  }\n  reload\n  loop\n  bind ` + nodeLocal + ` ` + values.DNSServer + `\n  forward . ` + values.ClusterDNS + `
-    {\n    ` + forceTcpToClusterDNS(values) + `\n  }\n  prometheus :` + strconv.Itoa(prometheusPort) + `\n  health ` + nodeLocal + `:8080\n  }\nin-addr.arpa:53
-    {\n  errors\n  cache 30\n  reload\n  loop\n  bind ` + nodeLocal + ` ` + values.DNSServer + `\n  forward .
-    ` + values.ClusterDNS + ` {\n    ` + forceTcpToClusterDNS(values) + `\n  }\n  prometheus :` + strconv.Itoa(prometheusPort) + `\n  }\nip6.arpa:53
-    {\n  errors\n  cache 30\n  reload\n  loop\n  bind ` + nodeLocal + ` ` + values.DNSServer + `\n  forward .
-    ` + values.ClusterDNS + ` {\n    ` + forceTcpToClusterDNS(values) + `\n  }\n  prometheus :` + strconv.Itoa(prometheusPort) + `\n  }\n.:53
-    {\n  errors\n  cache 30\n  reload\n  loop\n  bind ` + nodeLocal + ` ` + values.DNSServer + `\n  forward .
-    __PILLAR__UPSTREAM__SERVERS__ {\n    ` + forceTcpToUpstreamDNS(values) + `\n  }\n  prometheus :` + strconv.Itoa(prometheusPort) + `\n  }\n"`
+			configMapYAML = func() string { //todo cluster.local and space between the bind
 
 				out := `apiVersion: v1
 data:
-  ` + dataKey + `: ` + dataValue + `
+  Corefile: |
+    cluster.local:53 {
+      errors
+      cache {
+              success 9984 30
+              denial 9984 5
+      }
+      reload
+      loop
+      bind ` + nodeLocal + values.DNSServer + `
+      forward . ` + values.ClusterDNS + ` {
+              ` + forceTcpToClusterDNS(values) + `
+      }
+      prometheus :` + strconv.Itoa(prometheusPort) + `
+      health ` + nodeLocal + `:8080
+      }
+    in-addr.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind ` + nodeLocal + values.DNSServer + `
+      forward . ` + values.ClusterDNS + ` {
+              ` + forceTcpToClusterDNS(values) + `
+      }
+      prometheus :` + strconv.Itoa(prometheusPort) + `
+      }
+    .ip6.arpa:53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind ` + nodeLocal + values.DNSServer + `
+      forward . ` + values.ClusterDNS + ` {
+              ` + forceTcpToClusterDNS(values) + `
+      }
+      prometheus :` + strconv.Itoa(prometheusPort) + `
+      }
+    .53 {
+      errors
+      cache 30
+      reload
+      loop
+      bind ` + nodeLocal + values.DNSServer + `
+      forward . __PILLAR__UPSTREAM__SERVERS__ {
+              ` + forceTcpToUpstreamDNS(values) + `
+      }
+      prometheus :` + strconv.Itoa(prometheusPort) + `
+      }
+    }
 immutable: true
 kind: ConfigMap
 metadata:
@@ -185,6 +224,7 @@ metadata:
   name: node-local-dns-` + configMapHash + `
   namespace: kube-system
 `
+
 				return out
 
 			}
@@ -218,7 +258,7 @@ status:
 kind: DaemonSet
 metadata:
   annotations:
-    reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte("kube-dns"))[:8] + `: kube-dns
+    reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
     reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
   creationTimestamp: null
   labels:
@@ -236,7 +276,7 @@ spec:
       annotations:
         prometheus.io/port: "` + strconv.Itoa(prometheusPort) + `"
         prometheus.io/scrape: "` + strconv.FormatBool(prometheusScrape) + `"
-        reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte("kube-dns"))[:8] + `: kube-dns
+        reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
         reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
       creationTimestamp: null
       labels:
@@ -286,7 +326,7 @@ spec:
           name: xtables-lock
         - mountPath: /etc/coredns
           name: config-volume
-        - mountPath: ' /etc/kube-dns'
+        - mountPath: /etc/kube-dns
           name: kube-dns-config
       dnsPolicy: Default
       hostNetwork: true
@@ -305,15 +345,15 @@ spec:
           type: FileOrCreate
         name: xtables-lock
       - configMap:
-          name: kube-dns
-          optional: true
-        name: kube-dns-config
-      - configMap:
           items:
           - key: Corefile
             path: Corefile.base
           name: node-local-dns-` + configMapHash + `
         name: config-volume
+      - configMap:
+          name: kube-dns
+          optional: true
+        name: kube-dns-config
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 10
@@ -388,22 +428,22 @@ status: {}
 		Context("NodeLocalDNS with ipvsEnabled not enabled", func() {
 			BeforeEach(func() {
 				values.ClusterDNS = "__PILLAR__CLUSTER__DNS__"
-				values.DNSServer = "" //TOdo
+				values.DNSServer = "1.2.3.4"
 			})
 			Context("ConfigMap", func() {
 				JustBeforeEach(func() {
 					configMapData := map[string]string{
-						"Corefile": `` + gardencorev1beta1.DefaultDomain + `:53 {
+						"Corefile": `cluster.local:53 {
   errors
   cache {
-    success 9984 30
-    denial 9984 5
+          success 9984 30
+          denial 9984 5
   }
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   health ` + nodeLocal + `:8080
@@ -413,35 +453,37 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-ip6.arpa:53 {
+.ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.:53 {
+.53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
-    ` + forceTcpToUpstreamDNS(values) + `
+          ` + forceTcpToUpstreamDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-`}
+}
+`,
+					}
 					configMapHash = utils.ComputeConfigMapChecksum(configMapData)[:8]
 				})
 				Context("Case1", func() {
@@ -449,9 +491,27 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = true
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
 				})
 				Context("Case2", func() {
@@ -459,9 +519,27 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = false
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
 				})
 				Context("Case3", func() {
@@ -469,9 +547,27 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = true
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
 				})
 				Context("Case4", func() {
@@ -479,53 +575,52 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = false
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
-				})
-			})
-			Context("w/o VPA", func() {
-				BeforeEach(func() {
-					values.VPAEnabled = false
-				})
 
-				It("should succesfully deploy all resources", func() {
-					// Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
-				})
-			})
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
 
-			Context("w/ VPA", func() {
-				BeforeEach(func() {
-					values.VPAEnabled = true
-				})
-
-				It("should succesfully deploy all resources", func() {
-					Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
 				})
 			})
 		})
 
 		Context("NodeLocalDNS with ipvsEnabled enabled", func() {
 			BeforeEach(func() {
-				values.ClusterDNS = "__PILLAR__CLUSTER__DNS__" //Todo
+				values.ClusterDNS = "1.2.3.4"
 				values.DNSServer = ""
 			})
 
 			Context("ConfigMap", func() {
 				JustBeforeEach(func() {
 					configMapData := map[string]string{
-						"Corefile": `` + gardencorev1beta1.DefaultDomain + `:53 {
+						"Corefile": `cluster.local:53 {
   errors
   cache {
-    success 9984 30
-    denial 9984 5
+          success 9984 30
+          denial 9984 5
   }
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   health ` + nodeLocal + `:8080
@@ -535,35 +630,37 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-ip6.arpa:53 {
+.ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . ` + values.ClusterDNS + ` {
-    ` + forceTcpToClusterDNS(values) + `
+          ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.:53 {
+.53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + values.DNSServer + `
+  bind ` + nodeLocal + values.DNSServer + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
-    ` + forceTcpToUpstreamDNS(values) + `
+          ` + forceTcpToUpstreamDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-`}
+}
+`,
+					}
 					configMapHash = utils.ComputeConfigMapChecksum(configMapData)[:8]
 				})
 				Context("Case1", func() {
@@ -571,19 +668,56 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = true
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
 				})
 				Context("Case2", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = false
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
 				})
 				Context("Case3", func() {
@@ -591,9 +725,27 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = true
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
+
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
 				})
 				Context("Case4", func() {
@@ -601,31 +753,28 @@ ip6.arpa:53 {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = false
 					})
-					It("create config", func() {
-						Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-						Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+					Context("w/o VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = false
+						})
+
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
 					})
-				})
-			})
 
-			Context("w/o VPA", func() {
-				BeforeEach(func() {
-					values.VPAEnabled = false
-				})
+					Context("w/ VPA", func() {
+						BeforeEach(func() {
+							values.VPAEnabled = true
+						})
 
-				It("should succesfully deploy all resources", func() {
-					// Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
-				})
-			})
-
-			Context("w/ VPA", func() {
-				BeforeEach(func() {
-					values.VPAEnabled = true
-				})
-
-				It("should succesfully deploy all resources", func() {
-					Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-					// Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						It("should succesfully deploy all resources", func() {
+							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
+							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+						})
+					})
 				})
 			})
 		})

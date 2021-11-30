@@ -20,6 +20,7 @@ import (
 
 	"github.com/gardener/gardener/charts"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/botanist/component/nodelocaldns"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
 )
@@ -68,4 +69,9 @@ func (b *Botanist) DefaultNodeLocalDNS() (nodelocaldns.Interface, error) {
 // DeployNodeLocalDNS deploys the NodeLocalDNS system component.
 func (b *Botanist) DeployNodeLocalDNS(ctx context.Context) error {
 	return b.Shoot.Components.SystemComponents.NodeLocalDNS.Deploy(ctx)
+}
+
+// DestroyNodeLocalDNS deletes the managed resource and wait for cleanup.
+func (b *Botanist) DestroyNodeLocalDNS(ctx context.Context) error {
+	return component.OpDestroyAndWait(b.Shoot.Components.SystemComponents.NodeLocalDNS).Destroy(ctx)
 }

@@ -15,12 +15,16 @@
 package botanist_test
 
 import (
+	"github.com/gardener/gardener/charts"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	mockkubernetes "github.com/gardener/gardener/pkg/client/kubernetes/mock"
 	"github.com/gardener/gardener/pkg/operation"
 	. "github.com/gardener/gardener/pkg/operation/botanist"
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
+	"github.com/gardener/gardener/pkg/utils/imagevector"
 	"github.com/golang/mock/gomock"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -36,7 +40,13 @@ var _ = Describe("NodeLocalDNS", func() {
 		ctrl = gomock.NewController(GinkgoT())
 		botanist = &Botanist{Operation: &operation.Operation{}}
 		botanist.Shoot = &shootpkg.Shoot{}
-		botanist.Shoot.SetInfo(&gardencorev1beta1.Shoot{})
+		botanist.Shoot.SetInfo(&gardencorev1beta1.Shoot{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					v1beta1constants.AnnotationNodeLocalDNS: "true",
+				},
+			},
+		})
 	})
 
 	AfterEach(func() {
@@ -50,16 +60,14 @@ var _ = Describe("NodeLocalDNS", func() {
 			kubernetesClient = mockkubernetes.NewMockInterface(ctrl)
 
 			botanist.K8sSeedClient = kubernetesClient
-			botanist.Shoot.Networks = 
+			botanist.Shoot = &shootpkg.Shoot{}
 		})
 
-		It("should successfully create a coredns interface", func() {
-			// defer test.WithFeatureGate(gardenletfeatures.FeatureGate, features.APIServerSNI, false)()
-
+		It("should successfully create a nodelocaldns interface", func() {
 			kubernetesClient.EXPECT().Client()
-			botanist.ImageVector = imagevector.ImageVector{{Name: "node-local-dns"}}
+			botanist.ImageVector = imagevector.ImageVector{{Name: charts.ImageNameNodeLocalDns}}
 
-			nodeLocalDNS, err := botanist.DefaultCoreDNS()
+			nodeLocalDNS, err := botanist.DefaultNodeLocalDNS()
 			Expect(nodeLocalDNS).NotTo(BeNil())
 			Expect(err).NotTo(HaveOccurred())
 		})
@@ -67,8 +75,8 @@ var _ = Describe("NodeLocalDNS", func() {
 		It("should return an error because the image cannot be found", func() {
 			botanist.ImageVector = imagevector.ImageVector{}
 
-			coreDNS, err := botanist.DefaultCoreDNS()
-			Expect(coreDNS).To(BeNil())
+			nodeLocalDNS, err := botanist.DefaultNodeLocalDNS()
+			Expect(nodeLocalDNS).To(BeNil())
 			Expect(err).To(HaveOccurred())
 		})
 	})
