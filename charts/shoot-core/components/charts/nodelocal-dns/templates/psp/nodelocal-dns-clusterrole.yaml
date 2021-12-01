@@ -6,13 +6,3 @@ metadata:
     app: node-local-dns
   annotations:
       resources.gardener.cloud/mode: Ignore
-# rules:
-# - apiGroups:
-#   - policy
-#   - extensions
-#   resourceNames:
-#   - gardener.kube-system.node-local-dns
-#   resources:
-#   - podsecuritypolicies
-#   verbs:
-#   - use

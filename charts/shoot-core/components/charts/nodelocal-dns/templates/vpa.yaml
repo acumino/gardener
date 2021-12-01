@@ -6,11 +6,4 @@ metadata:
   namespace: {{ .Release.Namespace }}
   annotations:
       resources.gardener.cloud/mode: Ignore
-# spec:
-#   targetRef:
-#     apiVersion: {{ include "daemonsetversion" . }}
-#     kind: DaemonSet
-#     name: node-local-dns
-#   updatePolicy:
-#     updateMode: "Auto"
 {{- end }}

@@ -19,17 +19,16 @@ import (
 	"strconv"
 	"time"
 
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	"github.com/gardener/gardener/pkg/operation/common"
 	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
-	"github.com/gardener/gardener/pkg/utils/managedresources"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
 	kutil "github.com/gardener/gardener/pkg/utils/kubernetes"
+	"github.com/gardener/gardener/pkg/utils/managedresources"
+
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +40,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	autoscalingv1beta2 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1beta2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -51,17 +51,17 @@ const (
 	// PortServiceServer is the service port used for the DNS server.
 	PortServiceServer = 53
 	// PortServer is the target port used for the DNS server.
-	PortServer  = 8053
-	serviceName = "kube-dns-upstream"
+	PortServer = 8053
 	// ManagedResourceName is the name of the ManagedResource containing the resource specifications.
 	ManagedResourceName = "shoot-core-nodelocaldns"
 
-	// 	prometheus:
+	// 	prometheus configuration fot node-local-dns
 	prometheusPort   = 9253
 	prometheusScrape = true
 
-	nodeLocal = common.NodeLocalIPVSAddress     //"169.254.20.10"
-	domain    = gardencorev1beta1.DefaultDomain //"cluster.local"
+	nodeLocal   = common.NodeLocalIPVSAddress
+	domain      = gardencorev1beta1.DefaultDomain
+	serviceName = "kube-dns-upstream"
 
 	configDataKey = "Corefile"
 )
@@ -76,11 +76,11 @@ type Interface interface {
 type Values struct {
 	// Image is the container image used for NodeLocalDNS.
 	Image string
-	// VPAEnabled is th.
+	// VPAEnabled marks whether VerticalPodAutoscaler is enabled for the shoot.
 	VPAEnabled bool
-	// ForceTcpToClusterDNS dummy.
+	// ForceTcpToClusterDNS enforces upgrade to tcp connections for communication between node local and cluster dns.
 	ForceTcpToClusterDNS bool
-	// ForceTcpToUpstreamDNS dummy.
+	// ForceTcpToUpstreamDNS enforces upgrade to tcp connections for communication between node local and upstream dns.
 	ForceTcpToUpstreamDNS bool
 	// ClusterDNS
 	ClusterDNS string
@@ -292,6 +292,7 @@ in-addr.arpa:53 {
 		}
 	)
 	utilruntime.Must(kutil.MakeUnique(configMap))
+
 	var (
 		service = &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -304,7 +305,7 @@ in-addr.arpa:53 {
 				},
 			},
 			Spec: corev1.ServiceSpec{
-				Selector: map[string]string{LabelKey: "kube-dns"},
+				Selector: map[string]string{"k8s-app": "kube-dns"},
 				Ports: []corev1.ServicePort{
 					{
 						Name:       "dns",
@@ -327,9 +328,9 @@ in-addr.arpa:53 {
 				Name:      "node-local-dns",
 				Namespace: metav1.NamespaceSystem,
 				Labels: map[string]string{
-					"k8s-app":             "node-local-dns",
-					"gardener.cloud/role": "system-component",
-					"origin":              "gardener",
+					LabelKey:                        LabelValue,
+					v1beta1constants.GardenRole:     v1beta1constants.GardenRoleSystemComponent,
+					managedresources.LabelKeyOrigin: managedresources.LabelValueGardener,
 				},
 			},
 			Spec: appsv1.DaemonSetSpec{
@@ -340,13 +341,13 @@ in-addr.arpa:53 {
 				},
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"k8s-app": "node-local-dns",
+						LabelKey: LabelValue,
 					},
 				},
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: map[string]string{
-							"k8s-app":                                "node-local-dns",
+							LabelKey:                                 LabelValue,
 							v1beta1constants.LabelNetworkPolicyToDNS: "allowed",
 						},
 						Annotations: map[string]string{
@@ -356,7 +357,7 @@ in-addr.arpa:53 {
 					},
 					Spec: corev1.PodSpec{
 						PriorityClassName:  "system-node-critical",
-						ServiceAccountName: "node-local-dns",
+						ServiceAccountName: serviceAccount.Name,
 						HostNetwork:        true,
 						DNSPolicy:          corev1.DNSDefault,
 						Tolerations: []corev1.Toleration{
@@ -454,22 +455,6 @@ in-addr.arpa:53 {
 								},
 							},
 							{
-								Name: "config-volume",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: configMap.Name, //is updated below
-										},
-										Items: []corev1.KeyToPath{
-											{
-												Key:  configDataKey,
-												Path: "Corefile.base",
-											},
-										},
-									},
-								},
-							},
-							{
 								Name: "kube-dns-config",
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -480,6 +465,22 @@ in-addr.arpa:53 {
 									},
 								},
 							},
+							{
+								Name: "config-volume",
+								VolumeSource: corev1.VolumeSource{
+									ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: configMap.Name,
+										},
+										Items: []corev1.KeyToPath{
+											{
+												Key:  configDataKey,
+												Path: "Corefile.base",
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -487,8 +488,7 @@ in-addr.arpa:53 {
 		}
 		vpa *autoscalingv1beta2.VerticalPodAutoscaler
 	)
-	// utilruntime.Must(kutil.MakeUnique(configMap))
-	// daemonset.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap.LocalObjectReference.Name = configMap.Name
+
 	utilruntime.Must(references.InjectAnnotations(daemonset))
 	if c.values.VPAEnabled {
 		vpaUpdateMode := autoscalingv1beta2.UpdateModeAuto
@@ -501,7 +501,7 @@ in-addr.arpa:53 {
 				TargetRef: &autoscalingv1.CrossVersionObjectReference{
 					APIVersion: appsv1.SchemeGroupVersion.String(),
 					Kind:       "DaemonSet",
-					Name:       "node-local-dns",
+					Name:       daemonset.Name,
 				},
 				UpdatePolicy: &autoscalingv1beta2.PodUpdatePolicy{
 					UpdateMode: &vpaUpdateMode,

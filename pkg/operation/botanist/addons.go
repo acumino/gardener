@@ -434,30 +434,6 @@ func (b *Botanist) generateCoreAddonsChart(ctx context.Context) (*chartrenderer.
 	}
 	shootInfo["extensions"] = strings.Join(extensions, ",")
 
-	// The node-local-dns interface cannot bind the kube-dns cluster IP since the interface
-	// used for IPVS load-balancing already uses this address.
-	// if b.Shoot.IPVSEnabled() {
-	// 	nodeLocalDNSConfig["clusterDNS"] = b.Shoot.Networks.CoreDNS.String()
-	// } else {
-	// 	nodeLocalDNSConfig["dnsServer"] = b.Shoot.Networks.CoreDNS.String()
-	// }
-
-	// nodeLocalDNSForceTcpToClusterDNS := true
-	// if forceTcp, err := strconv.ParseBool(b.Shoot.GetInfo().Annotations[v1beta1constants.AnnotationNodeLocalDNSForceTcpToClusterDns]); err == nil {
-	// 	nodeLocalDNSForceTcpToClusterDNS = forceTcp
-	// }
-	// nodeLocalDNSConfig["forceTcpToClusterDNS"] = nodeLocalDNSForceTcpToClusterDNS
-	// nodeLocalDNSForceTcpToUpstreamDNS := true
-	// if forceTcp, err := strconv.ParseBool(b.Shoot.GetInfo().Annotations[v1beta1constants.AnnotationNodeLocalDNSForceTcpToUpstreamDns]); err == nil {
-	// 	nodeLocalDNSForceTcpToUpstreamDNS = forceTcp
-	// }
-	// nodeLocalDNSConfig["forceTcpToUpstreamDNS"] = nodeLocalDNSForceTcpToUpstreamDNS
-
-	// nodelocalDNS, err := b.InjectShootShootImages(nodeLocalDNSConfig, charts.ImageNameNodeLocalDns)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	nodeProblemDetector, err := b.InjectShootShootImages(nodeProblemDetectorConfig, charts.ImageNameNodeProblemDetector)
 	if err != nil {
 		return nil, err

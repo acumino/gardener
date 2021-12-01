@@ -16,8 +16,9 @@ package nodelocaldns_test
 
 import (
 	"context"
-	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
@@ -31,6 +32,9 @@ import (
 	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
 	"github.com/gardener/gardener/pkg/utils/test"
 	. "github.com/gardener/gardener/pkg/utils/test/matchers"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,9 +42,6 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("NodeLocalDNS", func() {
@@ -70,8 +71,6 @@ var _ = Describe("NodeLocalDNS", func() {
 			Image: image,
 		}
 
-		// component = New(c, namespace, values)
-
 		managedResource = &resourcesv1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      managedResourceName,
@@ -84,7 +83,6 @@ var _ = Describe("NodeLocalDNS", func() {
 				Namespace: namespace,
 			},
 		}
-
 	})
 
 	Describe("#Deploy", func() {
@@ -255,18 +253,12 @@ spec:
 status:
   loadBalancer: {}
 `
-			daemonsetYAMLFor = func() string {
-				// reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
-				// reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
-				// secretNameDHTest = "vpn-shoot-dh-" + utils.ComputeSecretChecksum(secretDataDH)[:8]
-				firstAn := "node-local-dns-" + configMapHash
-				secAn := "kube-dns"
+			daemonsetYAMLFor = func(expectedAnnotations []string) string {
 				out := `apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   annotations:
-    ` + references.AnnotationKey(references.KindConfigMap, firstAn) + `: ` + firstAn + `
-    ` + references.AnnotationKey(references.KindConfigMap, secAn) + `: ` + secAn + `
+    ` + utils.Indent(strings.Join(expectedAnnotations, "\n"), 4) + `
   creationTimestamp: null
   labels:
     gardener.cloud/role: system-component
@@ -283,8 +275,7 @@ spec:
       annotations:
         prometheus.io/port: "` + strconv.Itoa(prometheusPort) + `"
         prometheus.io/scrape: "` + strconv.FormatBool(prometheusScrape) + `"
-        ` + references.AnnotationKey(references.KindConfigMap, firstAn) + `: ` + firstAn + `
-        ` + references.AnnotationKey(references.KindConfigMap, secAn) + `: ` + secAn + `
+        ` + utils.Indent(strings.Join(expectedAnnotations, "\n"), 8) + `
       creationTimestamp: null
       labels:
         k8s-app: node-local-dns
@@ -352,15 +343,15 @@ spec:
           type: FileOrCreate
         name: xtables-lock
       - configMap:
+          name: kube-dns
+          optional: true
+        name: kube-dns-config
+      - configMap:
           items:
           - key: Corefile
             path: Corefile.base
           name: node-local-dns-` + configMapHash + `
         name: config-volume
-      - configMap:
-          name: kube-dns
-          optional: true
-        name: kube-dns-config
   updateStrategy:
     rollingUpdate:
       maxUnavailable: 10
@@ -430,7 +421,7 @@ status: {}
 			Expect(string(managedResourceSecret.Data["rolebinding__kube-system__gardener.cloud_psp_node-local-dns.yaml"])).To(Equal(roleBindingYAML))
 			Expect(string(managedResourceSecret.Data["podsecuritypolicy____gardener.kube-system.node-local-dns.yaml"])).To(Equal(podSecurityPolicyYAML))
 			Expect(string(managedResourceSecret.Data["service__kube-system__kube-dns-upstream.yaml"])).To(Equal(serviceYAML))
-			fmt.Print(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"]))
+			// fmt.Print(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"]))
 		})
 
 		Context("NodeLocalDNS with ipvsEnabled not enabled", func() {
@@ -494,6 +485,7 @@ in-addr.arpa:53 {
 					}
 					configMapHash = utils.ComputeConfigMapChecksum(configMapData)[:8]
 				})
+
 				Context("Case1", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
@@ -506,7 +498,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -518,7 +510,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -534,7 +526,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -546,7 +538,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -562,7 +554,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -574,7 +566,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -590,7 +582,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -602,7 +594,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -683,7 +675,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -695,7 +687,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -712,7 +704,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -724,7 +716,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -740,7 +732,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -752,7 +744,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -768,7 +760,7 @@ in-addr.arpa:53 {
 
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 
@@ -780,7 +772,7 @@ in-addr.arpa:53 {
 						It("should succesfully deploy all resources", func() {
 							Expect(string(managedResourceSecret.Data["configmap__kube-system__node-local-dns-"+configMapHash+".yaml"])).To(Equal(configMapYAML()))
 							Expect(string(managedResourceSecret.Data["verticalpodautoscaler__kube-system__node-local-dns.yaml"])).To(Equal(vpaYAML))
-							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor()))
+							Expect(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"])).To(Equal(daemonsetYAMLFor(expectedAnnotations(configMapHash))))
 						})
 					})
 				})
@@ -921,4 +913,15 @@ func forceTcpToUpstreamDNS(values Values) string {
 	} else {
 		return "prefer_udp"
 	}
+}
+
+func expectedAnnotations(configMapHash string) []string {
+	nodeLocal := "node-local-dns-" + configMapHash
+	kubeDNS := "kube-dns"
+	annotations := []string{
+		references.AnnotationKey(references.KindConfigMap, nodeLocal) + `: ` + nodeLocal,
+		references.AnnotationKey(references.KindConfigMap, kubeDNS) + `: ` + kubeDNS,
+	}
+	sort.Strings(annotations)
+	return annotations
 }

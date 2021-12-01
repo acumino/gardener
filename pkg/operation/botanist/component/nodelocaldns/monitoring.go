@@ -59,7 +59,6 @@ var (
 		monitoringMetricProcessOpenFds,
 	}
 
-	//TODO(acumino): Check if nodelocaldns is enabled
 	// TODO: Replace below hard-coded paths to Prometheus certificates once its deployment has been refactored.
 	monitoringScrapeConfig = `job_name: ` + monitoringPrometheusJobName + `
  scheme: https

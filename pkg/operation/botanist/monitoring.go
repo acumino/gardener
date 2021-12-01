@@ -69,7 +69,10 @@ func (b *Botanist) DeploySeedMonitoring(ctx context.Context) error {
 		b.Shoot.Components.ControlPlane.KubeScheduler,
 		b.Shoot.Components.ControlPlane.KubeControllerManager,
 		b.Shoot.Components.SystemComponents.CoreDNS,
-		b.Shoot.Components.SystemComponents.NodeLocalDNS,
+	}
+
+	if b.Shoot.NodeLocalDNSEnabled {
+		monitoringComponents = append(monitoringComponents, b.Shoot.Components.SystemComponents.NodeLocalDNS)
 	}
 
 	if b.Shoot.WantsClusterAutoscaler {
