@@ -174,7 +174,7 @@ data:
       }
       reload
       loop
-      bind ` + nodeLocal + values.DNSServer + `
+      bind ` + bindIP(values) + `
       forward . ` + values.ClusterDNS + ` {
               ` + forceTcpToClusterDNS(values) + `
       }
@@ -186,35 +186,34 @@ data:
       cache 30
       reload
       loop
-      bind ` + nodeLocal + values.DNSServer + `
+      bind ` + bindIP(values) + `
       forward . ` + values.ClusterDNS + ` {
               ` + forceTcpToClusterDNS(values) + `
       }
       prometheus :` + strconv.Itoa(prometheusPort) + `
       }
-    .ip6.arpa:53 {
+    ip6.arpa:53 {
       errors
       cache 30
       reload
       loop
-      bind ` + nodeLocal + values.DNSServer + `
+      bind ` + bindIP(values) + `
       forward . ` + values.ClusterDNS + ` {
               ` + forceTcpToClusterDNS(values) + `
       }
       prometheus :` + strconv.Itoa(prometheusPort) + `
       }
-    .53 {
+    .:53 {
       errors
       cache 30
       reload
       loop
-      bind ` + nodeLocal + values.DNSServer + `
+      bind ` + bindIP(values) + `
       forward . __PILLAR__UPSTREAM__SERVERS__ {
               ` + forceTcpToUpstreamDNS(values) + `
       }
       prometheus :` + strconv.Itoa(prometheusPort) + `
       }
-    }
 immutable: true
 kind: ConfigMap
 metadata:
@@ -288,9 +287,9 @@ spec:
 				out += `        - ` + containerArg(values)
 				out += `
         - -conf
-        - '"/etc/Corefile"'
+        - /etc/Corefile
         - -upstreamsvc
-        - kube-dns-updtream
+        - kube-dns-upstream
         image: ` + values.Image + `
         livenessProbe:
           httpGet:
@@ -333,7 +332,7 @@ spec:
       tolerations:
       - key: CriticalAddonsOnly
         operator: Exists
-      - effect: NoSchedule
+      - effect: NoExecute
         operator: Exists
       - effect: NoSchedule
         operator: Exists
@@ -421,7 +420,6 @@ status: {}
 			Expect(string(managedResourceSecret.Data["rolebinding__kube-system__gardener.cloud_psp_node-local-dns.yaml"])).To(Equal(roleBindingYAML))
 			Expect(string(managedResourceSecret.Data["podsecuritypolicy____gardener.kube-system.node-local-dns.yaml"])).To(Equal(podSecurityPolicyYAML))
 			Expect(string(managedResourceSecret.Data["service__kube-system__kube-dns-upstream.yaml"])).To(Equal(serviceYAML))
-			// fmt.Print(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"]))
 		})
 
 		Context("NodeLocalDNS with ipvsEnabled not enabled", func() {
@@ -440,7 +438,7 @@ status: {}
   }
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
@@ -452,41 +450,40 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.ip6.arpa:53 {
+ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.53 {
+.:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
           ` + forceTcpToUpstreamDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-}
 `,
 					}
 					configMapHash = utils.ComputeConfigMapChecksum(configMapData)[:8]
 				})
 
-				Context("Case1", func() {
+				Context("ForceTcpToClusterDNS : true and ForceTcpToUpstreamDNS : true", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = true
@@ -514,7 +511,7 @@ in-addr.arpa:53 {
 						})
 					})
 				})
-				Context("Case2", func() {
+				Context("ForceTcpToClusterDNS : true and ForceTcpToUpstreamDNS : false", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = false
@@ -542,7 +539,7 @@ in-addr.arpa:53 {
 						})
 					})
 				})
-				Context("Case3", func() {
+				Context("ForceTcpToClusterDNS : false and ForceTcpToUpstreamDNS : true", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = true
@@ -570,7 +567,7 @@ in-addr.arpa:53 {
 						})
 					})
 				})
-				Context("Case4", func() {
+				Context("ForceTcpToClusterDNS : false and ForceTcpToUpstreamDNS : false", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = false
@@ -618,7 +615,7 @@ in-addr.arpa:53 {
   }
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
@@ -630,40 +627,39 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.ip6.arpa:53 {
+ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . ` + values.ClusterDNS + ` {
           ` + forceTcpToClusterDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.53 {
+.:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + values.DNSServer + `
+  bind ` + bindIP(values) + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
           ` + forceTcpToUpstreamDNS(values) + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-}
 `,
 					}
 					configMapHash = utils.ComputeConfigMapChecksum(configMapData)[:8]
 				})
-				Context("Case1", func() {
+				Context("ForceTcpToClusterDNS : true and ForceTcpToUpstreamDNS : true", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = true
@@ -692,7 +688,7 @@ in-addr.arpa:53 {
 					})
 
 				})
-				Context("Case2", func() {
+				Context("ForceTcpToClusterDNS : true and ForceTcpToUpstreamDNS : false", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = true
 						values.ForceTcpToUpstreamDNS = false
@@ -720,7 +716,7 @@ in-addr.arpa:53 {
 						})
 					})
 				})
-				Context("Case3", func() {
+				Context("ForceTcpToClusterDNS : false and ForceTcpToUpstreamDNS : true", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = true
@@ -748,7 +744,7 @@ in-addr.arpa:53 {
 						})
 					})
 				})
-				Context("Case4", func() {
+				Context("ForceTcpToClusterDNS : false and ForceTcpToUpstreamDNS : false", func() {
 					BeforeEach(func() {
 						values.ForceTcpToClusterDNS = false
 						values.ForceTcpToUpstreamDNS = false
@@ -893,6 +889,13 @@ in-addr.arpa:53 {
 
 })
 
+func bindIP(values Values) string {
+	if values.DNSServer != "" {
+		return common.NodeLocalIPVSAddress + " " + values.DNSServer
+	} else {
+		return common.NodeLocalIPVSAddress
+	}
+}
 func containerArg(values Values) string {
 	if values.DNSServer != "" {
 		return common.NodeLocalIPVSAddress + "," + values.DNSServer
@@ -914,7 +917,6 @@ func forceTcpToUpstreamDNS(values Values) string {
 		return "prefer_udp"
 	}
 }
-
 func expectedAnnotations(configMapHash string) []string {
 	nodeLocal := "node-local-dns-" + configMapHash
 	kubeDNS := "kube-dns"

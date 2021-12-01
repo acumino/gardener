@@ -246,7 +246,7 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
   }
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + c.bindIP() + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
@@ -258,35 +258,34 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + c.bindIP() + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.ip6.arpa:53 {
+ip6.arpa:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + c.bindIP() + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-.53 {
+.:53 {
   errors
   cache 30
   reload
   loop
-  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
+  bind ` + c.bindIP() + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
           ` + c.forceTcpToUpstreamDNS() + `
   }
   prometheus :` + strconv.Itoa(prometheusPort) + `
   }
-}
 `,
 			},
 		}
@@ -336,7 +335,7 @@ in-addr.arpa:53 {
 			Spec: appsv1.DaemonSetSpec{
 				UpdateStrategy: appsv1.DaemonSetUpdateStrategy{
 					RollingUpdate: &appsv1.RollingUpdateDaemonSet{
-						MaxUnavailable: &intstr.IntOrString{IntVal: 10},
+						MaxUnavailable: &intstr.IntOrString{IntVal: 10}, //todo 10%
 					},
 				},
 				Selector: &metav1.LabelSelector{
@@ -367,7 +366,7 @@ in-addr.arpa:53 {
 							},
 							{
 								Operator: corev1.TolerationOpExists,
-								Effect:   corev1.TaintEffectNoSchedule,
+								Effect:   corev1.TaintEffectNoExecute,
 							},
 							{
 								Operator: corev1.TolerationOpExists,
@@ -394,7 +393,7 @@ in-addr.arpa:53 {
 									"-conf",
 									"/etc/Corefile",
 									"-upstreamsvc",
-									"kube-dns-updtream",
+									"kube-dns-upstream",
 								},
 								SecurityContext: &corev1.SecurityContext{
 									Privileged: pointer.Bool(true),
@@ -531,6 +530,14 @@ in-addr.arpa:53 {
 		daemonset,
 		vpa,
 	)
+}
+
+func (c *nodeLocalDNS) bindIP() string {
+	if c.values.DNSServer != "" {
+		return nodeLocal + " " + c.values.DNSServer
+	} else {
+		return nodeLocal
+	}
 }
 func (c *nodeLocalDNS) containerArg() string {
 	if c.values.DNSServer != "" {
