@@ -16,6 +16,7 @@ package botanist
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/gardener/gardener/charts"
@@ -37,8 +38,14 @@ func (b *Botanist) DefaultNodeLocalDNS() (nodelocaldns.Interface, error) {
 	clusterDNS := "__PILLAR__CLUSTER__DNS__"
 	dnsServer := ""
 	if b.Shoot.IPVSEnabled() {
+		fmt.Print("-------------------------------------------------------")
+		fmt.Print("cluster")
+		fmt.Print(clusterDNS)
 		clusterDNS = b.Shoot.Networks.CoreDNS.String()
 	} else {
+		fmt.Print("-------------------------------------------------------")
+		fmt.Print("dns")
+		fmt.Print(dnsServer)
 		dnsServer = b.Shoot.Networks.CoreDNS.String()
 	}
 

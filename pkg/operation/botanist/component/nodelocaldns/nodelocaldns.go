@@ -246,7 +246,7 @@ func (c *nodeLocalDNS) computeResourcesData() (map[string][]byte, error) {
   }
   reload
   loop
-  bind ` + nodeLocal + c.values.DNSServer + `
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
@@ -258,7 +258,7 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + c.values.DNSServer + `
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
@@ -269,7 +269,7 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + c.values.DNSServer + `
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
   forward . ` + c.values.ClusterDNS + ` {
           ` + c.forceTcpToClusterDNS() + `
   }
@@ -280,7 +280,7 @@ in-addr.arpa:53 {
   cache 30
   reload
   loop
-  bind ` + nodeLocal + c.values.DNSServer + `
+  bind ` + nodeLocal + ` ` + c.values.DNSServer + `
   forward . __PILLAR__UPSTREAM__SERVERS__ {
           ` + c.forceTcpToUpstreamDNS() + `
   }
@@ -392,7 +392,7 @@ in-addr.arpa:53 {
 									"-localip",
 									c.containerArg(),
 									"-conf",
-									"\"/etc/Corefile\"",
+									"/etc/Corefile",
 									"-upstreamsvc",
 									"kube-dns-updtream",
 								},
