@@ -290,7 +290,9 @@ in-addr.arpa:53 {
 `,
 			},
 		}
-
+	)
+	utilruntime.Must(kutil.MakeUnique(configMap))
+	var (
 		service = &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      serviceName,
@@ -456,7 +458,7 @@ in-addr.arpa:53 {
 								VolumeSource: corev1.VolumeSource{
 									ConfigMap: &corev1.ConfigMapVolumeSource{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "node-local-dns", //is updated below
+											Name: configMap.Name, //is updated below
 										},
 										Items: []corev1.KeyToPath{
 											{
@@ -485,8 +487,8 @@ in-addr.arpa:53 {
 		}
 		vpa *autoscalingv1beta2.VerticalPodAutoscaler
 	)
-	utilruntime.Must(kutil.MakeUnique(configMap))
-	daemonset.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap.LocalObjectReference.Name = configMap.Name
+	// utilruntime.Must(kutil.MakeUnique(configMap))
+	// daemonset.Spec.Template.Spec.Volumes[1].VolumeSource.ConfigMap.LocalObjectReference.Name = configMap.Name
 	utilruntime.Must(references.InjectAnnotations(daemonset))
 	if c.values.VPAEnabled {
 		vpaUpdateMode := autoscalingv1beta2.UpdateModeAuto

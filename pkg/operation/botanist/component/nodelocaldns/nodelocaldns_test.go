@@ -16,6 +16,7 @@ package nodelocaldns_test
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -24,6 +25,7 @@ import (
 	"github.com/gardener/gardener/pkg/operation/botanist/component"
 	. "github.com/gardener/gardener/pkg/operation/botanist/component/nodelocaldns"
 	"github.com/gardener/gardener/pkg/operation/common"
+	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
 	"github.com/gardener/gardener/pkg/utils"
 	"github.com/gardener/gardener/pkg/utils/retry"
 	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
@@ -68,7 +70,7 @@ var _ = Describe("NodeLocalDNS", func() {
 			Image: image,
 		}
 
-		component = New(c, namespace, values)
+		// component = New(c, namespace, values)
 
 		managedResource = &resourcesv1alpha1.ManagedResource{
 			ObjectMeta: metav1.ObjectMeta{
@@ -254,12 +256,17 @@ status:
   loadBalancer: {}
 `
 			daemonsetYAMLFor = func() string {
+				// reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
+				// reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
+				// secretNameDHTest = "vpn-shoot-dh-" + utils.ComputeSecretChecksum(secretDataDH)[:8]
+				firstAn := "node-local-dns-" + configMapHash
+				secAn := "kube-dns"
 				out := `apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   annotations:
-    reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
-    reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
+    ` + references.AnnotationKey(references.KindConfigMap, firstAn) + `: ` + firstAn + `
+    ` + references.AnnotationKey(references.KindConfigMap, secAn) + `: ` + secAn + `
   creationTimestamp: null
   labels:
     gardener.cloud/role: system-component
@@ -276,8 +283,8 @@ spec:
       annotations:
         prometheus.io/port: "` + strconv.Itoa(prometheusPort) + `"
         prometheus.io/scrape: "` + strconv.FormatBool(prometheusScrape) + `"
-        reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`kube-dns`))[:8] + `: kube-dns
-        reference.resources.gardener.cloud/configmap-` + utils.ComputeSHA256Hex([]byte(`node-local-dns-` + configMapHash))[:8] + `: node-local-dns-` + configMapHash + `
+        ` + references.AnnotationKey(references.KindConfigMap, firstAn) + `: ` + firstAn + `
+        ` + references.AnnotationKey(references.KindConfigMap, secAn) + `: ` + secAn + `
       creationTimestamp: null
       labels:
         k8s-app: node-local-dns
@@ -423,6 +430,7 @@ status: {}
 			Expect(string(managedResourceSecret.Data["rolebinding__kube-system__gardener.cloud_psp_node-local-dns.yaml"])).To(Equal(roleBindingYAML))
 			Expect(string(managedResourceSecret.Data["podsecuritypolicy____gardener.kube-system.node-local-dns.yaml"])).To(Equal(podSecurityPolicyYAML))
 			Expect(string(managedResourceSecret.Data["service__kube-system__kube-dns-upstream.yaml"])).To(Equal(serviceYAML))
+			fmt.Print(string(managedResourceSecret.Data["daemonset__kube-system__node-local-dns.yaml"]))
 		})
 
 		Context("NodeLocalDNS with ipvsEnabled not enabled", func() {
@@ -782,6 +790,7 @@ in-addr.arpa:53 {
 
 	Describe("#Destroy", func() {
 		It("should successfully destroy all resources", func() {
+			component = New(c, namespace, values)
 			Expect(c.Create(ctx, managedResource)).To(Succeed())
 			Expect(c.Create(ctx, managedResourceSecret)).To(Succeed())
 
@@ -802,6 +811,8 @@ in-addr.arpa:53 {
 		)
 
 		BeforeEach(func() {
+			component = New(c, namespace, values)
+
 			fakeOps = &retryfake.Ops{MaxAttempts: 1}
 			resetVars = test.WithVars(
 				&retry.Until, fakeOps.Until,
