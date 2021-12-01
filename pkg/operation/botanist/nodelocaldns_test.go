@@ -15,6 +15,8 @@
 package botanist_test
 
 import (
+	"net"
+
 	"github.com/gardener/gardener/charts"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
@@ -23,11 +25,11 @@ import (
 	. "github.com/gardener/gardener/pkg/operation/botanist"
 	shootpkg "github.com/gardener/gardener/pkg/operation/shoot"
 	"github.com/gardener/gardener/pkg/utils/imagevector"
-	"github.com/golang/mock/gomock"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = Describe("NodeLocalDNS", func() {
@@ -60,7 +62,9 @@ var _ = Describe("NodeLocalDNS", func() {
 			kubernetesClient = mockkubernetes.NewMockInterface(ctrl)
 
 			botanist.K8sSeedClient = kubernetesClient
-			botanist.Shoot = &shootpkg.Shoot{}
+			botanist.Shoot.Networks = &shootpkg.Networks{
+				CoreDNS: net.ParseIP("18.19.20.21"),
+			}
 		})
 
 		It("should successfully create a nodelocaldns interface", func() {
