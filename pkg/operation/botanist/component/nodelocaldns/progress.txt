@@ -1,0 +1,19 @@
+-> In monitoring there is no alert rule like what if node local dns goes down (probably not required)
+  -- I have returned nil
+
+-> There is no logging present for node-local-dns
+-> For flow dependecy for now followed the coreDns dependecy
+
+-> Can we add annoatiaon later of node-local-dns or needed while creation(related to testing)
+
+-> TODO in global (commit - Refactor ConfigMap template to Golang object, Refactor Service template to Golang object)
+-> Todo common/types.go (commit - Refactor Deployment template to Golang object)
+
+-> returning nil if node local dns is not enabled
+-> verison conditions of the tets
+
+
+---Todo
+--In daemonset there is one config map missing as it is adding config annotations randomly 
+-- Need extensive check on destroy 
+-- Is extra test needed for nodelocaldns.go
