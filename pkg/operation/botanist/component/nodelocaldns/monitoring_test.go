@@ -37,18 +37,10 @@ var _ = Describe("Monitoring", func() {
 const (
 	expectedScrapeConfig = `job_name: node-local-dns
  scheme: https
- tls_config:
-   insecure_skip_verify: true
-   cert_file: /etc/prometheus/seed/prometheus.crt
-   key_file: /etc/prometheus/seed/prometheus.key
  honor_labels: false
  kubernetes_sd_configs:
  - role: pod
    api_server: https://kube-apiserver:443
-   tls_config:
-     ca_file: /etc/prometheus/seed/ca.crt
-     cert_file: /etc/prometheus/seed/prometheus.crt
-     key_file: /etc/prometheus/seed/prometheus.key
  relabel_configs:
  - source_labels:
    - __meta_kubernetes_pod_name

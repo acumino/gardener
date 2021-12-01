@@ -62,18 +62,10 @@ var (
 	// TODO: Replace below hard-coded paths to Prometheus certificates once its deployment has been refactored.
 	monitoringScrapeConfig = `job_name: ` + monitoringPrometheusJobName + `
  scheme: https
- tls_config:
-   insecure_skip_verify: true
-   cert_file: /etc/prometheus/seed/prometheus.crt
-   key_file: /etc/prometheus/seed/prometheus.key
  honor_labels: false
  kubernetes_sd_configs:
  - role: pod
    api_server: https://` + v1beta1constants.DeploymentNameKubeAPIServer + `:` + strconv.Itoa(kubeapiserver.Port) + `
-   tls_config:
-     ca_file: /etc/prometheus/seed/ca.crt
-     cert_file: /etc/prometheus/seed/prometheus.crt
-     key_file: /etc/prometheus/seed/prometheus.key
  relabel_configs:
  - source_labels:
    - __meta_kubernetes_pod_name
