@@ -142,6 +142,10 @@ func determineSeed(
 	if err != nil {
 		return nil, err
 	}
+	filteredSeeds, err = filterSeedsMatchingIPFamilies(shoot, filteredSeeds)
+	if err != nil {
+		return nil, err
+	}
 	filteredSeeds, err = filterSeedsForZonalShootControlPlanes(filteredSeeds, shoot)
 	if err != nil {
 		return nil, err
@@ -213,6 +217,22 @@ func filterSeedsMatchingProviders(cloudProfile *gardencorev1beta1.CloudProfile, 
 
 	if len(matchingSeeds) == 0 {
 		return nil, fmt.Errorf("none out of the %d seeds has a matching provider for %q", len(seedList), shoot.Spec.Provider.Type)
+	}
+	return matchingSeeds, nil
+}
+
+func filterSeedsMatchingIPFamilies(shoot *gardencorev1beta1.Shoot, seedList []gardencorev1beta1.Seed) ([]gardencorev1beta1.Seed, error) {
+	var matchingSeeds []gardencorev1beta1.Seed
+	for _, seed := range seedList {
+		// Host IPv6 single-stack shoots on IPv4 single-stack seeds or vice-versa is not supported.
+		if seed.Spec.Networks.IPFamilies[0] != shoot.Spec.Networking.IPFamilies[0] {
+			continue
+		}
+		matchingSeeds = append(matchingSeeds, seed)
+	}
+
+	if len(matchingSeeds) == 0 {
+		return nil, fmt.Errorf("none out of the %d seeds has a matching IPFamilies for %q", len(seedList), &shoot.Spec.Networking.IPFamilies)
 	}
 	return matchingSeeds, nil
 }
