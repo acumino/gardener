@@ -498,7 +498,7 @@ func (r *ReferenceManager) Admit(ctx context.Context, a admission.Attributes, o 
 								channel <- fmt.Errorf("unable to delete Machine image version '%s/%s' from CloudProfile %q - version is still in use by shoot '%s/%s' by worker %q", worker.Machine.Image.Name, worker.Machine.Image.Version, shoot.Spec.CloudProfileName, shoot.Namespace, shoot.Name, worker.Name)
 							}
 						}
-					}(s)
+					}(s.DeepCopy())
 				}
 
 				// close channel when wait group has 0 counter
