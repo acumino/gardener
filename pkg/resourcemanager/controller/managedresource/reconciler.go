@@ -686,6 +686,7 @@ func (r *Reconciler) cleanOldResources(ctx context.Context, log logr.Logger, mr 
 	)
 
 	for _, oldResource := range index.Objects() {
+		resource := oldResource
 		if !index.Found(oldResource) {
 			wg.Add(1)
 			go func(ref resourcesv1alpha1.ObjectReference) {
@@ -753,7 +754,7 @@ func (r *Reconciler) cleanOldResources(ctx context.Context, log logr.Logger, mr 
 					return
 				}
 				results <- &output{obj, true, nil}
-			}(oldResource)
+			}(resource)
 		}
 	}
 
@@ -801,6 +802,7 @@ func (r *Reconciler) releaseOrphanedResources(ctx context.Context, log logr.Logg
 	)
 
 	for _, orphanedResource := range orphanedResources {
+		resource := orphanedResource
 		wg.Add(1)
 
 		go func(ref resourcesv1alpha1.ObjectReference) {
@@ -809,7 +811,7 @@ func (r *Reconciler) releaseOrphanedResources(ctx context.Context, log logr.Logg
 			err := r.releaseOrphanedResource(ctx, log, ref, origin)
 			results <- err
 
-		}(orphanedResource)
+		}(resource)
 	}
 
 	go func() {

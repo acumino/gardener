@@ -240,12 +240,13 @@ func (d *DeletionConfirmation) Validate(ctx context.Context, a admission.Attribu
 		)
 
 		for _, obj := range objList {
+			object := obj
 			wg.Add(1)
 
 			go func(obj client.Object) {
 				defer wg.Done()
 				output <- d.Validate(ctx, admission.NewAttributesRecord(a.GetObject(), a.GetOldObject(), a.GetKind(), a.GetNamespace(), obj.GetName(), a.GetResource(), a.GetSubresource(), a.GetOperation(), a.GetOperationOptions(), a.IsDryRun(), a.GetUserInfo()), o)
-			}(obj)
+			}(object)
 		}
 
 		go func() {

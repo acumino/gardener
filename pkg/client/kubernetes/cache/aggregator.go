@@ -98,12 +98,14 @@ func (c *aggregator) Start(ctx context.Context) error {
 	// However, this is not problematic, as long as the aggregator cache is not in any client set, that might
 	// be invalidated during runtime.
 	for gvk, cache := range c.gvkToCache {
+		gvkCopy := gvk
+		cacheCopy := cache
 		go func(gvk schema.GroupVersionKind, cache runtimecache.Cache) {
 			err := cache.Start(ctx)
 			if err != nil {
 				logf.Log.Error(err, "Cache failed to start", "gvk", gvk.String())
 			}
-		}(gvk, cache)
+		}(gvkCopy, cacheCopy)
 	}
 	go func() {
 		if err := c.fallbackCache.Start(ctx); err != nil {
