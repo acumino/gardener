@@ -1123,13 +1123,19 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 			}).RetryUntilTimeout(defaultInterval, deployKubeAPIServerTaskTimeout),
 			Dependencies: flow.NewTaskIDs(waitUntilTunnelConnectionExists),
 		})
+		waitUntilKubeAPIServerIsReadyAgain = g.Add(flow.Task{
+			Name:         "Waiting until Kubernetes API server is rolled out after VPN migration",
+			Fn:           botanist.Shoot.Components.ControlPlane.KubeAPIServer.Wait,
+			SkipIf:       o.Shoot.HibernationEnabled || skipReadiness,
+			Dependencies: flow.NewTaskIDs(deployKubeAPIServerAgain),
+		})
 		destroyTemporaryVPNShoot = g.Add(flow.Task{
 			Name: "Destroying temporary vpn-shoot system component",
 			Fn: flow.TaskFn(func(ctx context.Context) error {
 				return botanist.Shoot.Components.SystemComponents.VPNShootForMigration.Destroy(ctx)
 			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
 			SkipIf:       o.Shoot.IsWorkerless || o.Shoot.HibernationEnabled,
-			Dependencies: flow.NewTaskIDs(deployKubeAPIServerAgain),
+			Dependencies: flow.NewTaskIDs(waitUntilKubeAPIServerIsReadyAgain),
 		})
 		destroyTempVPNSeedServer = g.Add(flow.Task{
 			Name: "Destroying temporary vpn-seed-server",
@@ -1137,7 +1143,7 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 				return botanist.Shoot.Components.ControlPlane.VPNSeedServerForMigration.Destroy(ctx)
 			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
 			SkipIf:       o.Shoot.IsWorkerless, // also need to be skipped when old vpn is deployed
-			Dependencies: flow.NewTaskIDs(deployKubeAPIServerAgain),
+			Dependencies: flow.NewTaskIDs(waitUntilKubeAPIServerIsReadyAgain),
 		})
 
 		destroyTempDomainDNSRecord = g.Add(flow.Task{
