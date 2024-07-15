@@ -36,6 +36,7 @@ const (
 	AnnotationVPNMigrated = "shoot.gardener.cloud/VPN-migrated"
 
 	AnnotationBackupEntryMigrated = "shoot.gardener.cloud/backupentry-migrated"
+	AnnotationBackupEntryRestored = "shoot.gardener.cloud/backupentry-restored"
 
 	AnnotationEtcdMemberRemoved = "shoot.gardener.cloud/etcd-member-removed"
 

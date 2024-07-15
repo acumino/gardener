@@ -1345,13 +1345,26 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 			SkipIf:       !allowBackup || skipReadiness || !botanist.IsRestorePhase(),
 			Dependencies: flow.NewTaskIDs(destroySourceBackupEntry),
 		})
+		annotateBackupEntryRestored = g.Add(flow.Task{
+			Name: "Annotate shoot that backupentry is restored",
+			Fn: flow.TaskFn(func(ctx context.Context) error {
+				if err := o.Shoot.UpdateInfo(ctx, o.GardenClient, false, func(shoot *gardencorev1beta1.Shoot) error {
+					metav1.SetMetaDataAnnotation(&shoot.ObjectMeta, v1beta1constants.AnnotationBackupEntryRestored, "true")
+					return nil
+				}); err != nil {
+					return nil
+				}
+				return nil
+			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
+			Dependencies: flow.NewTaskIDs(waitDestroySourceBackupEntry),
+		})
 
 		etcdMemberRemoved = g.Add(flow.Task{
 			Name: "wait for annotation etcd member removal",
 			Fn: flow.TaskFn(func(ctx context.Context) error {
 				return o.WaitForShootAnnotation(ctx, v1beta1constants.AnnotationEtcdMemberRemoved)
 			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(waitUntilExtensionResourcesAfterKAPIReady),
+			Dependencies: flow.NewTaskIDs(waitUntilExtensionResourcesAfterKAPIReady, annotateBackupEntryRestored),
 		})
 
 		// fifth stage is till here
@@ -1366,7 +1379,7 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 				}
 				return nil
 			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(waitDestroySourceBackupEntry, etcdMemberRemoved),
+			Dependencies: flow.NewTaskIDs(waitDestroySourceBackupEntry, annotateBackupEntryRestored, etcdMemberRemoved),
 		})
 	)
 
