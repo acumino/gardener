@@ -1058,6 +1058,16 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 			Dependencies: flow.NewTaskIDs(nginxLBReady),
 		})
 
+		dnsMigrateWait = g.Add(flow.Task{
+			Name: "Wait for DNS cache to get updated",
+			Fn: flow.TaskFn(func(ctx context.Context) error {
+				time.Sleep(1 * time.Minute)
+				return nil
+			}),
+			SkipIf:       o.Shoot.HibernationEnabled,
+			Dependencies: flow.NewTaskIDs(deployInternalDomainDNSRecord, deployExternalDomainDNSRecord, deployIngressDomainDNSRecord),
+		})
+
 		// dns has been restored
 		annotationDNSRestored = g.Add(flow.Task{
 			Name: "Annotate shoot dns records has been restored",
@@ -1070,7 +1080,7 @@ func (r *Reconciler) runLiveRestoreShootFlow(ctx context.Context, o *operation.O
 				}
 				return nil
 			}).RetryUntilTimeout(defaultInterval, defaultTimeout),
-			Dependencies: flow.NewTaskIDs(deployInternalDomainDNSRecord, deployExternalDomainDNSRecord, deployIngressDomainDNSRecord),
+			Dependencies: flow.NewTaskIDs(deployInternalDomainDNSRecord, deployExternalDomainDNSRecord, deployIngressDomainDNSRecord, dnsMigrateWait),
 		})
 		waitSourceVPNDestroyed = g.Add(flow.Task{
 			Name: "Waiting for the shoot.gardener.cloud/source-VPN-destroyed annotation",
