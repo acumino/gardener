@@ -18,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
-	"github.com/gardener/gardener/extensions/pkg/util"
 	"github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/utils"
@@ -94,17 +93,17 @@ func (m MachineDeployments) HasSecret(secretName string) bool {
 
 // WorkerPoolHash returns a hash value for a given worker pool and a given cluster resource.
 func WorkerPoolHash(pool extensionsv1alpha1.WorkerPool, cluster *extensionscontroller.Cluster, additionalData ...string) (string, error) {
-	kubernetesVersion := cluster.Shoot.Spec.Kubernetes.Version
-	if pool.KubernetesVersion != nil {
-		kubernetesVersion = *pool.KubernetesVersion
-	}
-	shootVersionMajorMinor, err := util.VersionMajorMinor(kubernetesVersion)
-	if err != nil {
-		return "", err
-	}
+	// kubernetesVersion := cluster.Shoot.Spec.Kubernetes.Version
+	// if pool.KubernetesVersion != nil {
+	// 	kubernetesVersion = *pool.KubernetesVersion
+	// }
+	// shootVersionMajorMinor, err := util.VersionMajorMinor(kubernetesVersion)
+	// if err != nil {
+	// 	return "", err
+	// }
 
 	data := []string{
-		shootVersionMajorMinor,
+		// shootVersionMajorMinor,
 		pool.MachineType,
 		pool.MachineImage.Name + pool.MachineImage.Version,
 	}
