@@ -9682,6 +9682,13 @@ func schema_pkg_apis_core_v1beta1_Worker(ref common.ReferenceCallback) common.Op
 							Ref:         ref("github.com/gardener/gardener/pkg/apis/core/v1beta1.ClusterAutoscalerOptions"),
 						},
 					},
+					"updateStrategy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "UpdateStrategy contains the update strategy for the worker pool.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"name", "machine", "maximum", "minimum"},
 			},

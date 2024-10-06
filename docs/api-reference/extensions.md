@@ -4714,6 +4714,20 @@ ClusterAutoscalerOptions
 <p>ClusterAutoscaler contains the cluster autoscaler configurations for the worker pool.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>updateStrategy</code></br>
+<em>
+<a href="./core.md#core.gardener.cloud/v1beta1.MachineUpdateStrategy">
+github.com/gardener/gardener/pkg/apis/core/v1beta1.MachineUpdateStrategy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>UpdateStrategy contains the update strategy for the worker pool.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="extensions.gardener.cloud/v1alpha1.WorkerSpec">WorkerSpec

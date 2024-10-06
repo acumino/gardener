@@ -289,6 +289,10 @@ spec:
                         - key
                         type: object
                       type: array
+                    updateStrategy:
+                      description: UpdateStrategy contains the update strategy for
+                        the worker pool.
+                      type: string
                     userDataSecretRef:
                       description: |-
                         UserDataSecretRef references a Secret and a data key containing the data that is sent to the provider's APIs when

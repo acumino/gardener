@@ -5667,6 +5667,11 @@ func (in *Worker) DeepCopyInto(out *Worker) {
 		*out = new(ClusterAutoscalerOptions)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.UpdateStrategy != nil {
+		in, out := &in.UpdateStrategy, &out.UpdateStrategy
+		*out = new(MachineUpdateStrategy)
+		**out = **in
+	}
 	return
 }
 

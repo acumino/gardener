@@ -1941,6 +1941,11 @@ func (in *WorkerPool) DeepCopyInto(out *WorkerPool) {
 		*out = new(ClusterAutoscalerOptions)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.UpdateStrategy != nil {
+		in, out := &in.UpdateStrategy, &out.UpdateStrategy
+		*out = new(v1beta1.MachineUpdateStrategy)
+		**out = **in
+	}
 	return
 }
 
