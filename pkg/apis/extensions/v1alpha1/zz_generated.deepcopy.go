@@ -1584,6 +1584,11 @@ func (in *OperatingSystemConfigSpec) DeepCopyInto(out *OperatingSystemConfigSpec
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.Version != nil {
+		in, out := &in.Version, &out.Version
+		*out = new(string)
+		**out = **in
+	}
 	return
 }
 

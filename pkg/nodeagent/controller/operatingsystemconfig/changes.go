@@ -49,6 +49,7 @@ type operatingSystemConfigChanges struct {
 	units      units
 	files      files
 	containerd containerd
+	osVersion  osVersion
 }
 
 type units struct {
@@ -69,6 +70,11 @@ type dropIns struct {
 type files struct {
 	changed []extensionsv1alpha1.File
 	deleted []extensionsv1alpha1.File
+}
+
+type osVersion struct {
+	changed bool
+	version string
 }
 
 type containerd struct {
@@ -133,6 +139,13 @@ func computeOperatingSystemConfigChanges(fs afero.Afero, newOSC *extensionsv1alp
 		mergeUnits(newOSC.Spec.Units, newOSC.Status.ExtensionUnits),
 		changes.files,
 	)
+
+	if oldOSC.Spec.Version != nil && newOSC.Spec.Version != nil && *oldOSC.Spec.Version != *newOSC.Spec.Version {
+		changes.osVersion.changed = true
+		changes.osVersion.version = *newOSC.Spec.Version
+	} else {
+		changes.osVersion.changed = false
+	}
 
 	var (
 		newRegistries []extensionsv1alpha1.RegistryConfig

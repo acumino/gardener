@@ -85,6 +85,9 @@ type OperatingSystemConfigSpec struct {
 	// +patchStrategy=merge
 	// +optional
 	Files []File `json:"files,omitempty" patchStrategy:"merge" patchMergeKey:"path"`
+	// Version is the version of the OperatingSystem.
+	// +optional
+	Version *string `json:"version,omitempty"`
 }
 
 // Unit is a unit for the operating system configuration (usually, a systemd unit).

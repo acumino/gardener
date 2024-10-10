@@ -38,6 +38,7 @@ func OperatingSystemConfigSecret(
 			Units:     osc.Spec.Units,
 			Files:     osc.Spec.Files,
 			CRIConfig: osc.Spec.CRIConfig,
+			Version:   osc.Spec.Version,
 		},
 		Status: extensionsv1alpha1.OperatingSystemConfigStatus{
 			ExtensionUnits: osc.Status.ExtensionUnits,

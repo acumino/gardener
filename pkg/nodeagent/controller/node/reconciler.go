@@ -7,6 +7,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -17,6 +18,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	nodeagentv1alpha1 "github.com/gardener/gardener/pkg/nodeagent/apis/config/v1alpha1"
 	"github.com/gardener/gardener/pkg/nodeagent/controller/operatingsystemconfig"
@@ -93,18 +95,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 			return reconcile.Result{}, err
 		}
 
-		output, err := operatingsystemconfig.Exec(ctx, "sudo", "gardenlinux-update", version)
+		updateFilePath := filepath.Join(extensionsv1alpha1.PathForInPlaceOSUpdate, extensionsv1alpha1.ScriptName)
+		output, err := operatingsystemconfig.Exec(ctx, "/bin/bash", updateFilePath, version)
+		log.Info("Output of update script", "output", output)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
-		log.Info("Output of gardenlinux-update", "output", output)
-
-		output, err = operatingsystemconfig.Exec(ctx, "sudo", "reboot")
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		log.Info("Output of reboot", "output", output)
 	}
 
 	return reconcile.Result{}, nil

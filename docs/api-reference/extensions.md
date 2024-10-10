@@ -1455,6 +1455,18 @@ This field is immutable.</p>
 <p>Files is a list of files that should get written to the host&rsquo;s file system.</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>version</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Version is the version of the OperatingSystem.</p>
+</td>
+</tr>
 </table>
 </td>
 </tr>
@@ -3942,6 +3954,18 @@ This field is immutable.</p>
 <td>
 <em>(Optional)</em>
 <p>Files is a list of files that should get written to the host&rsquo;s file system.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>version</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Version is the version of the OperatingSystem.</p>
 </td>
 </tr>
 </tbody>

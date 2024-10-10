@@ -900,6 +900,7 @@ func (d *deployer) deploy(ctx context.Context, operation string) (extensionsv1al
 		d.osc.Spec.Purpose = d.purpose
 		d.osc.Spec.Units = units
 		d.osc.Spec.Files = files
+		d.osc.Spec.Version = d.worker.Machine.Image.Version
 
 		if d.worker.CRI != nil {
 			d.osc.Spec.CRIConfig = &extensionsv1alpha1.CRIConfig{
