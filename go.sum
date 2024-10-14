@@ -50,8 +50,8 @@ github.com/PuerkitoBio/purell v1.0.0/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbt
 github.com/PuerkitoBio/purell v1.1.1/go.mod h1:c11w/QuzBsJSee3cPx9rAFu61PvFxuPbtSwDGJws/X0=
 github.com/PuerkitoBio/urlesc v0.0.0-20160726150825-5bd2802263f2/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
 github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578/go.mod h1:uGdkoq3SwY9Y+13GIhn11/XLaGBb4BfwItxLd5jeuXE=
-github.com/acumino/machine-controller-manager v0.42.1-0.20241010073706-1114d82d7d7d h1:jrJyKIZnF3rxcLbwkkEfii8tBAMG+Ttd2Gep7q6SXE4=
-github.com/acumino/machine-controller-manager v0.42.1-0.20241010073706-1114d82d7d7d/go.mod h1:RPpnU8gmTrhDAd79+iKqKlbANiXCRkXoJW+z+5zSTME=
+github.com/acumino/machine-controller-manager v0.42.1-0.20241014073125-bde84b374016 h1:oCGdZsAhIo1yt8uI+Mcu41P3iWU/b4YdrayXSy21O7g=
+github.com/acumino/machine-controller-manager v0.42.1-0.20241014073125-bde84b374016/go.mod h1:RPpnU8gmTrhDAd79+iKqKlbANiXCRkXoJW+z+5zSTME=
 github.com/ahmetb/gen-crd-api-reference-docs v0.3.0 h1:+XfOU14S4bGuwyvCijJwhhBIjYN+YXS18jrCY2EzJaY=
 github.com/ahmetb/gen-crd-api-reference-docs v0.3.0/go.mod h1:TdjdkYhlOifCQWPs1UdTma97kQQMozf5h26hTuG70u8=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=

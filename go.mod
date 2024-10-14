@@ -258,4 +258,4 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 )
 
-replace github.com/gardener/machine-controller-manager => github.com/acumino/machine-controller-manager v0.42.1-0.20241010073706-1114d82d7d7d
+replace github.com/gardener/machine-controller-manager => github.com/acumino/machine-controller-manager v0.42.1-0.20241014073125-bde84b374016
