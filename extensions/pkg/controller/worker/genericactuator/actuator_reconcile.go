@@ -245,16 +245,13 @@ func deployMachineDeployments(
 			},
 		}
 
-		if deployment.UpdateStrategy == v1beta1.InPlaceUpdate || deployment.UpdateStrategy == v1beta1.OnLabelUpdate {
+		if deployment.UpdateStrategy == v1beta1.InPlaceUpdate {
 			machineDeploymentStrategy = machinev1alpha1.MachineDeploymentStrategy{
 				Type: machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType,
-				InPlaceUpdate: &machinev1alpha1.InPlaceUpdateMachineDeployment{
-					MaxUnavailable: deployment.MaxUnavailable,
+				RollingUpdate: &machinev1alpha1.RollingUpdateMachineDeployment{
+					MaxUnavailable: &deployment.MaxUnavailable,
 				},
 			}
-		}
-		if deployment.UpdateStrategy == v1beta1.OnLabelUpdate {
-			machineDeploymentStrategy.InPlaceUpdate.OnLabel = true
 		}
 
 		if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, cl, machineDeployment, func() error {
