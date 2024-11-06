@@ -1213,7 +1213,17 @@ type Worker struct {
 	Sysctls map[string]string
 	// ClusterAutoscaler contains the cluster autoscaler configurations for the worker pool.
 	ClusterAutoscaler *ClusterAutoscalerOptions
+	// UpdateStrategy specifies the update strategy for the worker pool.
+	UpdateStrategy *MachineUpdateStrategy
 }
+
+type MachineUpdateStrategy string
+
+const (
+	AutoReplaceUpdate   MachineUpdateStrategy = "AutoReplaceUpdate"
+	AutoInPlaceUpdate   MachineUpdateStrategy = "AutoInPlaceUpdate"
+	ManualInPlaceUpdate MachineUpdateStrategy = "ManualInPlaceUpdate"
+)
 
 // ClusterAutoscalerOptions contains the cluster autoscaler configurations for a worker pool.
 type ClusterAutoscalerOptions struct {
