@@ -105,6 +105,8 @@ type MachineImageVersion struct {
 	// - '>= 1.26' - supports only kubelet versions greater than or equal to 1.26
 	// - '< 1.26' - supports only kubelet versions less than 1.26
 	KubeletVersionConstraint *string
+	// MinVersionForInPlaceUpdate specifies the minimum supported version from which an in-place update to this machine image version can be performed.
+	MinVersionForInPlaceUpdate *string
 }
 
 // ExpirableVersion contains a version and an expiration date.
