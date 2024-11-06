@@ -85,6 +85,18 @@ type OperatingSystemConfigSpec struct {
 	// +patchStrategy=merge
 	// +optional
 	Files []File `json:"files,omitempty" patchStrategy:"merge" patchMergeKey:"path"`
+	// OSVersion is the version of the OperatingSystem.
+	// +optional
+	OSVersion *string `json:"osVersion,omitempty"`
+	// KubeletVersion is the version of the Kubelet.
+	// +optional
+	KubeletVersion *string `json:"kubeletVersion,omitempty"`
+	// CredentialsRotation is a structure containing information about the last initiation time of the CA and ServiceAccountKey rotation.
+	// +optional
+	CredentialsRotation *CredentialsRotation `json:"credentialsRotation,omitempty"`
+	// KubeletConfigHash is the hash calculated on fields relevant for in-place update of the Kubelet configuration.
+	// +optional
+	KubeletConfigHash *string `json:"kubeletConfigHash,omitempty"`
 }
 
 // Unit is a unit for the operating system configuration (usually, a systemd unit).
@@ -203,6 +215,9 @@ type OperatingSystemConfigStatus struct {
 	// After Gardener v1.112, this will be only set for OperatingSystemConfigs with purpose 'provision'.
 	// +optional
 	CloudConfig *CloudConfig `json:"cloudConfig,omitempty"`
+	// InPlaceUpdateConfig contains the configuration for in-place updates.
+	// +optional
+	InPlaceUpdateConfig *InPlaceUpdateConfig `json:"inPlaceUpdateConfig,omitempty"`
 }
 
 // CloudConfig contains the generated output for the given operating system
@@ -350,3 +365,33 @@ const (
 	// B64FileCodecID is the base64 file codec id.
 	B64FileCodecID FileCodecID = "b64"
 )
+
+// InPlaceUpdateConfig is a structure containing configuration for in-place updates.
+type InPlaceUpdateConfig struct {
+	// OSUpdateCommand defines the command responsible for performing machine image updates.
+	// +optional
+	OSUpdateCommand *string `json:"osUpdateCommand,omitempty"`
+}
+
+type CredentialsRotation struct {
+	// CertificateAuthorities contains information about the certificate authority credential rotation.
+	// +optional
+	CertificateAuthorities *CARotation `json:"certificateAuthorities,omitempty"`
+	// ServiceAccountKey contains information about the service account key credential rotation.
+	// +optional
+	ServiceAccountKey *ServiceAccountKeyRotation `json:"serviceAccountKey,omitempty"`
+}
+
+// CARotation contains information about the certificate authority credential rotation.
+type CARotation struct {
+	// LastInitiationTime is the most recent time when the certificate authority credential rotation was initiated.
+	// +optional
+	LastInitiationTime *metav1.Time `json:"lastInitiationTime,omitempty"`
+}
+
+// ServiceAccountKeyRotation contains information about the service account key credential rotation.
+type ServiceAccountKeyRotation struct {
+	// LastInitiationTime is the most recent time when the service account key credential rotation was initiated.
+	// +optional
+	LastInitiationTime *metav1.Time `json:"lastInitiationTime,omitempty"`
+}
