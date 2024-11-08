@@ -66,6 +66,7 @@ var _ = Describe("Shoot Validation Tests", func() {
 				MaxSurge:         &maxSurge,
 				MaxUnavailable:   &maxUnavailable,
 				SystemComponents: systemComponents,
+				UpdateStrategy:   ptr.To(core.AutoReplaceUpdate),
 			}
 			invalidWorker = core.Worker{
 				Name: "",
@@ -5238,6 +5239,33 @@ var _ = Describe("Shoot Validation Tests", func() {
 
 				errorList := ValidateShootUpdate(newShoot, shoot)
 				Expect(errorList).To(BeEmpty())
+			})
+		})
+
+		Context("worker pool updateStrategy", func() {
+			It("should forbid changing the updateStrategy from AutoReplaceUpdate to AutoReplaceUpdate/ManualInPlaceUpdate", func() {
+				newShoot := shoot.DeepCopy()
+
+				newShoot.Spec.Provider.Workers[0].UpdateStrategy = ptr.To(core.AutoInPlaceUpdate)
+
+				Expect(ValidateShootUpdate(newShoot, shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  Equal("spec.provider.workers[0].updateStrategy"),
+					"Detail": Equal("updateStrategy can't be changed"),
+				}))))
+			})
+
+			It("should forbid changing the updateStrategy from ManualInPlaceUpdate to AutoReplaceUpdate", func() {
+				shoot.Spec.Provider.Workers[0].UpdateStrategy = ptr.To(core.ManualInPlaceUpdate)
+				newShoot := shoot.DeepCopy()
+
+				newShoot.Spec.Provider.Workers[0].UpdateStrategy = ptr.To(core.AutoReplaceUpdate)
+
+				Expect(ValidateShootUpdate(newShoot, shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  Equal("spec.provider.workers[0].updateStrategy"),
+					"Detail": Equal("updateStrategy can't be changed"),
+				}))))
 			})
 		})
 	})

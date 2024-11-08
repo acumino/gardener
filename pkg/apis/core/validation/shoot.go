@@ -402,7 +402,41 @@ func validateWorkerUpdate(newHasWorkers, oldHasWorkers bool, fldPath *field.Path
 
 // ValidateProviderUpdate validates the specification of a Provider object.
 func ValidateProviderUpdate(newProvider, oldProvider *core.Provider, fldPath *field.Path) field.ErrorList {
-	return apivalidation.ValidateImmutableField(newProvider.Type, oldProvider.Type, fldPath.Child("type"))
+	allErrs := field.ErrorList{}
+
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newProvider.Type, oldProvider.Type, fldPath.Child("type"))...)
+
+	for i, newWorker := range newProvider.Workers {
+		oldWorker := newWorker
+		for _, ow := range oldProvider.Workers {
+			if ow.Name == newWorker.Name {
+				oldWorker = ow
+				break
+			}
+		}
+		idxPath := fldPath.Child("workers").Index(i)
+
+		if oldWorker.UpdateStrategy != nil || newWorker.UpdateStrategy != nil {
+			if oldWorker.UpdateStrategy == nil || newWorker.UpdateStrategy == nil ||
+				(*oldWorker.UpdateStrategy != *newWorker.UpdateStrategy &&
+					!((*oldWorker.UpdateStrategy == core.AutoInPlaceUpdate && *newWorker.UpdateStrategy == core.ManualInPlaceUpdate) ||
+						(*oldWorker.UpdateStrategy == core.ManualInPlaceUpdate && *newWorker.UpdateStrategy == core.AutoInPlaceUpdate))) {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("updateStrategy"), newWorker.UpdateStrategy,
+					fmt.Sprintf("updateStrategy can't be changed from %q to %q",
+						stringPtrOrEmpty(oldWorker.UpdateStrategy), stringPtrOrEmpty(newWorker.UpdateStrategy))))
+			}
+		}
+
+	}
+
+	return allErrs
+}
+
+func stringPtrOrEmpty(ptr *core.MachineUpdateStrategy) core.MachineUpdateStrategy {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
 }
 
 // ValidateShootStatusUpdate validates the status field of a Shoot object.
