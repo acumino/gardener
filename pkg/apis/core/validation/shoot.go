@@ -1797,6 +1797,17 @@ func ValidateWorker(worker core.Worker, kubernetes core.Kubernetes, fldPath *fie
 		allErrs = append(allErrs, ValidateClusterAutoscalerOptions(worker.ClusterAutoscaler, fldPath.Child("autoscaler"))...)
 	}
 
+	if worker.UpdateStrategy != nil {
+		updateStrategy := sets.New(core.AutoReplaceUpdate, core.AutoInPlaceUpdate, core.ManualInPlaceUpdate)
+		if !updateStrategy.Has(*worker.UpdateStrategy) {
+			allErrs = append(allErrs, field.NotSupported(fldPath.Child("updateStrategy"), *worker.UpdateStrategy, sets.List(updateStrategy)))
+		}
+
+		if !features.DefaultFeatureGate.Enabled(features.InPlaceNodeUpdates) && (*worker.UpdateStrategy == core.AutoInPlaceUpdate || *worker.UpdateStrategy == core.ManualInPlaceUpdate) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("updateStrategy"), *worker.UpdateStrategy, "can not configure `AutoInPlaceUpdate` or `ManualInPlaceUpdate` update strategie when the `InPlaceNodeUpdates` feature gate is disabled."))
+		}
+	}
+
 	return allErrs
 }
 
