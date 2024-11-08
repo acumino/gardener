@@ -181,6 +181,7 @@ func ValidateShootUpdate(newShoot, oldShoot *core.Shoot) field.ErrorList {
 	allErrs = append(allErrs, ValidateShoot(newShoot)...)
 	allErrs = append(allErrs, ValidateShootHAConfigUpdate(newShoot, oldShoot)...)
 	allErrs = append(allErrs, validateHibernationUpdate(newShoot, oldShoot)...)
+	allErrs = append(allErrs, validateNodeLocalDNSUpdate(&newShoot.Spec, &oldShoot.Spec, field.NewPath("spec"))...)
 
 	if features.DefaultFeatureGate.Enabled(features.ShootForceDeletion) {
 		allErrs = append(allErrs, ValidateForceDeletion(newShoot, oldShoot)...)
@@ -427,6 +428,24 @@ func ValidateProviderUpdate(newProvider, oldProvider *core.Provider, fldPath *fi
 			}
 		}
 
+		if ptr.Equal(oldWorker.UpdateStrategy, newWorker.UpdateStrategy) && newWorker.UpdateStrategy != nil &&
+			(*newWorker.UpdateStrategy == core.AutoInPlaceUpdate || *newWorker.UpdateStrategy == core.ManualInPlaceUpdate) {
+			if oldWorker.Machine.Type != newWorker.Machine.Type {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("machine", "type"), newWorker.Machine.Type, "machine type can't be changed if updateStrategy is AutoInPlaceUpdate/ManualInPlaceUpdate"))
+			}
+
+			if oldWorker.Machine.Image != nil && newWorker.Machine.Image != nil && oldWorker.Machine.Image.Name != newWorker.Machine.Image.Name {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("machine", "image", "name"), newWorker.Machine.Image.Name, "machine image name can't be changed if updateStrategy is AutoInPlaceUpdate/ManualInPlaceUpdate"))
+			}
+
+			if oldWorker.CRI != nil && newWorker.CRI != nil && oldWorker.CRI.Name != newWorker.CRI.Name {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("cri", "name"), newWorker.CRI.Name, "CRI name can't be changed if updateStrategy is AutoInPlaceUpdate/ManualInPlaceUpdate"))
+			}
+
+			if !apiequality.Semantic.DeepEqual(oldWorker.Volume, newWorker.Volume) {
+				allErrs = append(allErrs, field.Invalid(idxPath.Child("volume"), newWorker.Volume, "volume can't be changed if updateStrategy is AutoInPlaceUpdate/ManualInPlaceUpdate"))
+			}
+		}
 	}
 
 	return allErrs
@@ -696,6 +715,32 @@ func ValidateKubernetesVersionUpdate(new, old string, skipMinorVersionAllowed bo
 		}
 		if skippingMinorVersion {
 			allErrs = append(allErrs, field.Forbidden(fldPath, "kubernetes version upgrade cannot skip a minor version"))
+		}
+	}
+
+	return allErrs
+}
+
+func validateNodeLocalDNSUpdate(newSpec, oldSpec *core.ShootSpec, fldPath *field.Path) field.ErrorList {
+	var (
+		allErrs                          = field.ErrorList{}
+		oldNodeLocalDNS, newNodeLocalDNS bool
+	)
+
+	if oldSpec.SystemComponents != nil && oldSpec.SystemComponents.NodeLocalDNS != nil {
+		oldNodeLocalDNS = oldSpec.SystemComponents.NodeLocalDNS.Enabled
+	}
+
+	if newSpec.SystemComponents != nil && newSpec.SystemComponents.NodeLocalDNS != nil {
+		newNodeLocalDNS = newSpec.SystemComponents.NodeLocalDNS.Enabled
+	}
+
+	if oldNodeLocalDNS != newNodeLocalDNS {
+		for _, worker := range oldSpec.Provider.Workers {
+			if worker.UpdateStrategy != nil && (*worker.UpdateStrategy == core.AutoInPlaceUpdate || *worker.UpdateStrategy == core.ManualInPlaceUpdate) {
+				allErrs = append(allErrs, field.Forbidden(fldPath.Child("systemComponents", "nodeLocalDNS"), "node-local-dns setting can not be changed if shoot has worker pool with update strategy AutoInPlaceUpdate/ManualInPlaceUpdate"))
+				break
+			}
 		}
 	}
 
