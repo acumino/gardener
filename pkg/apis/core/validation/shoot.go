@@ -368,8 +368,13 @@ func ValidateShootSpecUpdate(newSpec, oldSpec *core.ShootSpec, newObjectMeta met
 			newKubernetesVersion = *newWorker.Kubernetes.Version
 		}
 
-		// worker kubernetes versions must not be downgraded and but can skip minor versions
-		allErrs = append(allErrs, ValidateKubernetesVersionUpdate(newKubernetesVersion, oldKubernetesVersion, true, idxPath.Child("kubernetes", "version"))...)
+		skipMinorVersionAllowed := true
+		if newWorker.UpdateStrategy != nil && (*newWorker.UpdateStrategy == core.AutoInPlaceUpdate || *newWorker.UpdateStrategy == core.ManualInPlaceUpdate) {
+			skipMinorVersionAllowed = false
+		}
+
+		// worker kubernetes versions must not be downgraded but can skip minor versions(except for AutoInPlaceUpdate/ManualInPlaceUpdate)
+		allErrs = append(allErrs, ValidateKubernetesVersionUpdate(newKubernetesVersion, oldKubernetesVersion, skipMinorVersionAllowed, idxPath.Child("kubernetes", "version"))...)
 	}
 
 	allErrs = append(allErrs, validateNetworkingUpdate(newSpec.Networking, oldSpec.Networking, fldPath.Child("networking"))...)
