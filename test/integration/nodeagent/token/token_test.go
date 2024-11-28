@@ -87,7 +87,7 @@ var _ = Describe("Token controller tests", func() {
 				},
 				SyncPeriod: &metav1.Duration{Duration: syncPeriod},
 			},
-		}).AddToManager(mgr)).To(Succeed())
+		}).AddToManager(mgr, nil)).To(Succeed())
 
 		By("Start manager")
 		mgrContext, mgrCancel := context.WithCancel(ctx)

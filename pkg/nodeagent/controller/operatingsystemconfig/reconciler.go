@@ -10,50 +10,68 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
+	"strings"
 	"time"
 
+	machinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/spf13/afero"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	runtimepkg "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	jsonserializer "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/gardener/gardener/pkg/api/indexer"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1/helper"
+	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/component/extensions/operatingsystemconfig/original/components/kubelet"
 	"github.com/gardener/gardener/pkg/controllerutils"
+	"github.com/gardener/gardener/pkg/features"
 	"github.com/gardener/gardener/pkg/nodeagent"
 	nodeagentconfigv1alpha1 "github.com/gardener/gardener/pkg/nodeagent/apis/config/v1alpha1"
+	healthcheckcontroller "github.com/gardener/gardener/pkg/nodeagent/controller/healthcheck"
 	"github.com/gardener/gardener/pkg/nodeagent/dbus"
 	filespkg "github.com/gardener/gardener/pkg/nodeagent/files"
 	"github.com/gardener/gardener/pkg/nodeagent/registry"
 	"github.com/gardener/gardener/pkg/utils/flow"
+	kubernetesutils "github.com/gardener/gardener/pkg/utils/kubernetes"
+	"github.com/gardener/gardener/pkg/utils/retry"
 )
 
 const (
 	lastAppliedOperatingSystemConfigFilePath         = nodeagentconfigv1alpha1.BaseDir + "/last-applied-osc.yaml"
 	lastComputedOperatingSystemConfigChangesFilePath = nodeagentconfigv1alpha1.BaseDir + "/last-computed-osc-changes.yaml"
+	annotationUpdateOSVersion                        = "worker.gardener.cloud/updating-os-version"
+	kubeletUnitName                                  = "kubelet.service"
+	pathKubeletCPUManagerPolicyState                 = kubelet.PathKubeletDirectory + "/cpu_manager_state"
 )
 
-var codec runtime.Codec
+var codec runtimepkg.Codec
 
 func init() {
-	scheme := runtime.NewScheme()
+	scheme := runtimepkg.NewScheme()
 	utilruntime.Must(extensionsv1alpha1.AddToScheme(scheme))
 	ser := jsonserializer.NewSerializerWithOptions(jsonserializer.DefaultMetaFactory, scheme, scheme, jsonserializer.SerializerOptions{Yaml: true, Pretty: false, Strict: false})
 	versions := schema.GroupVersions([]schema.GroupVersion{nodeagentconfigv1alpha1.SchemeGroupVersion, extensionsv1alpha1.SchemeGroupVersion})
@@ -63,15 +81,18 @@ func init() {
 // Reconciler decodes the OperatingSystemConfig resources from secrets and applies the systemd units and files to the
 // node.
 type Reconciler struct {
-	Client        client.Client
-	Config        nodeagentconfigv1alpha1.OperatingSystemConfigControllerConfig
-	Recorder      record.EventRecorder
-	DBus          dbus.DBus
-	FS            afero.Afero
-	Extractor     registry.Extractor
-	CancelContext context.CancelFunc
-	HostName      string
-	NodeName      string
+	Client                 client.Client
+	Config                 nodeagentconfigv1alpha1.OperatingSystemConfigControllerConfig
+	TokenSecretSyncConfigs []nodeagentconfigv1alpha1.TokenSecretSyncConfig
+	Channel                chan event.TypedGenericEvent[*corev1.Secret]
+	Recorder               record.EventRecorder
+	DBus                   dbus.DBus
+	FS                     afero.Afero
+	Extractor              registry.Extractor
+	CancelContext          context.CancelFunc
+	HostName               string
+	NodeName               string
+	MachineName            string
 }
 
 // Reconcile decodes the OperatingSystemConfig resources from secrets and applies the systemd units and files to the
@@ -112,7 +133,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, fmt.Errorf("failed reconciling containerd configuration: %w", err)
 	}
 
-	oscChanges, err := computeOperatingSystemConfigChanges(log, r.FS, osc, oscChecksum)
+	osVersion, err := getOSVersion()
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed getting OS version: %w", err)
+	}
+
+	oscChanges, err := computeOperatingSystemConfigChanges(log, r.FS, osc, oscChecksum, osVersion)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("failed calculating the OSC changes: %w", err)
 	}
@@ -120,6 +146,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	if node != nil && node.Annotations[nodeagentconfigv1alpha1.AnnotationKeyChecksumAppliedOperatingSystemConfig] == oscChecksum {
 		log.Info("Configuration on this node is up to date, nothing to be done")
 		return reconcile.Result{}, nil
+	}
+
+	// If the nodeagent has restarted after OS update, we need to persist the change in oscChanges.
+	if osc.Spec.InPlaceUpdates != nil && osVersion == osc.Spec.InPlaceUpdates.OperatingSystemVersion {
+		if err := oscChanges.completeOSUpdate(); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed completing OS update: %w", err)
+		}
+	}
+
+	// If in-place update, wait until node drain.
+	if isInPlaceUpdate(oscChanges) {
+		if !nodeHasInPlaceUpdateConditionWithReasonReadyForUpdate(node.Status.Conditions) {
+			log.Info("Node is not ready for in-place update, will be requeued when the node has the ready-for-update condition", "node", node.Name)
+			return reconcile.Result{RequeueAfter: 10 * time.Minute}, nil
+		}
+
+		log.Info("In-place update is in progress", "osUpdate", oscChanges.OSVersion.Changed,
+			"kubeletMinorVersionUpdate", oscChanges.KubeletUpdate.MinorVersionUpdate,
+			"kubeletConfigUpdate", oscChanges.KubeletUpdate.ConfigUpdate || oscChanges.KubeletUpdate.CPUManagerPolicyUpdate,
+			"certificateAuthoritiesRotation", oscChanges.CARotation, "serviceAccountKeyRotation", oscChanges.SAKeyRotation,
+		)
 	}
 
 	log.Info("Applying new or changed inline files")
@@ -158,6 +205,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, fmt.Errorf("failed executing unit commands: %w", err)
 	}
 
+	if oscChanges.KubeletUpdate.MinorVersionUpdate || oscChanges.KubeletUpdate.ConfigUpdate || oscChanges.KubeletUpdate.CPUManagerPolicyUpdate {
+		if err := completeKubeletInPlaceUpdate(ctx, log, oscChanges); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed completing kubelet in-place update: %w", err)
+		}
+	}
+
 	// After the node is prepared, we can wait for the registries to be configured.
 	// The ones with readiness probes should also succeed here since their cache/mirror pods
 	// can now start as workload in the cluster.
@@ -171,10 +224,62 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, fmt.Errorf("failed removing deleted files: %w", err)
 	}
 
+	// Node can be nil during the first reconciliation loop.
+	if node != nil {
+		// If the node-agent is updated, because of a potential fix for the in-place OS update code,
+		// we need to restart it to apply the changes. Else, the in-place OS update can hang forever.
+		if oscChanges.OSVersion.Changed && oscChanges.MustRestartNodeAgent {
+			log.Info("Must restart myself (gardener-node-agent unit), canceling the context to initiate graceful shutdown")
+			if err := oscChanges.setMustRestartNodeAgent(false); err != nil {
+				return reconcile.Result{}, err
+			}
+			r.CancelContext()
+			return reconcile.Result{}, nil
+		}
+
+		if err := r.updateOSInPlace(ctx, log, oscChanges, osc, node); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to update OS in-place: %w", err)
+		}
+
+		if err := r.performCertificateRotationInPlace(ctx, log, oscChanges, node); err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to perform certificate rotation in-place: %w", err)
+		}
+
+		if _, osUpdateAnnotationPresent := node.Annotations[annotationUpdateOSVersion]; osUpdateAnnotationPresent && osc.Spec.InPlaceUpdates != nil && osVersion != osc.Spec.InPlaceUpdates.OperatingSystemVersion {
+			log.Info("OS version mismatch, not labeling node with MCM label", "node", node.Name, "version", osVersion, "expectedVersion", osc.Spec.InPlaceUpdates.OperatingSystemVersion)
+			// TODO: error if the version in the annotation doesnt match
+
+			patch := client.MergeFrom(node.DeepCopy())
+			metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateFailed)
+			if err := r.Client.Patch(ctx, node, patch); err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed patching node with update-failed label: %w", err)
+			}
+
+			// TODO: should we return error here and requeue?
+			return reconcile.Result{}, nil
+		}
+
+		if nodeHasInPlaceUpdateConditionWithReasonReadyForUpdate(node.Status.Conditions) {
+			if err := r.deleteRemainingPods(ctx, log, node); err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to delete remaining pods: %w", err)
+			}
+
+			// If this point is reached, which means all the in-place updates are done, we can label the node with the update-successful label.
+			// And this has to be done before persisting the current OSC to the disk.
+			log.Info("Labeling node with MCM label", "node", node.Name, "label", machinev1alpha1.LabelKeyNodeUpdateResult, "value", machinev1alpha1.LabelValueNodeUpdateSuccessful)
+			patch := client.MergeFrom(node.DeepCopy())
+			metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateSuccessful)
+			delete(node.Annotations, annotationUpdateOSVersion)
+			if err := r.Client.Patch(ctx, node, patch); err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed patching node after in-place update: %w", err)
+			}
+		}
+	}
+
 	log.Info("Successfully applied operating system config")
 
 	log.Info("Persisting current operating system config as 'last-applied' file to the disk", "path", lastAppliedOperatingSystemConfigFilePath)
-	oscRaw, err := runtime.Encode(codec, osc)
+	oscRaw, err := runtimepkg.Encode(codec, osc)
 	if err != nil {
 		return reconcile.Result{}, fmt.Errorf("unable to encode OSC: %w", err)
 	}
@@ -411,6 +516,14 @@ func (r *Reconciler) applyChangedUnits(ctx context.Context, log logr.Logger, cha
 		if err := changes.completedUnitChanged(unit.Name); err != nil {
 			return err
 		}
+
+		if unit.Name == kubeletUnitName && changes.KubeletUpdate.CPUManagerPolicyUpdate {
+			// See https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/#changing-the-cpu-manager-policy
+			log.Info("Removing kubelet cpu manager policy state file", "path", pathKubeletCPUManagerPolicyState)
+			if err := r.FS.Remove(pathKubeletCPUManagerPolicyState); err != nil && !errors.Is(err, afero.ErrFileNotFound) {
+				return fmt.Errorf("failed removing kubelet cpu manager policy state file %q: %w", kubelet.PathKubeconfigReal, err)
+			}
+		}
 	}
 
 	return nil
@@ -548,4 +661,277 @@ func (r *Reconciler) executeUnitCommands(ctx context.Context, log logr.Logger, n
 	}
 
 	return flow.Parallel(fns...)(ctx)
+}
+
+func (r *Reconciler) performCertificateRotationInPlace(ctx context.Context, log logr.Logger, oscChanges *operatingSystemConfigChanges, node *corev1.Node) error {
+	if oscChanges.SAKeyRotation {
+		// Generate events for the token sync controller to update the SA tokens.
+		for _, tokenSyncConfig := range r.TokenSecretSyncConfigs {
+			r.Channel <- event.TypedGenericEvent[*corev1.Secret]{Object: &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: tokenSyncConfig.SecretName, Namespace: metav1.NamespaceSystem}}}
+			log.Info("Triggered an event for the token controller", "secret", tokenSyncConfig.SecretName)
+		}
+
+		if err := oscChanges.completeSAKeyRotation(); err != nil {
+			return fmt.Errorf("failed completing SA key rotation: %w", err)
+		}
+	}
+
+	if oscChanges.CARotation.Kubelet || oscChanges.CARotation.NodeAgent {
+		// Read the updated gardener-node-agent config for the API server CA bundle and server URL.
+		// This must always be called after applying the updated files.
+		nodeAgentConfigFile, err := r.FS.ReadFile(nodeagentconfigv1alpha1.ConfigFilePath)
+		if err != nil {
+			return fmt.Errorf("error reading config file: %w", err)
+		}
+
+		nodeAgentConfig := &nodeagentconfigv1alpha1.NodeAgentConfiguration{}
+		if err = runtimepkg.DecodeInto(codec, nodeAgentConfigFile, nodeAgentConfig); err != nil {
+			return fmt.Errorf("error decoding gardener-node-agent config: %w", err)
+		}
+
+		if oscChanges.CARotation.Kubelet {
+			if err := r.rebootstrapKubelet(ctx, log, nodeAgentConfig, node); err != nil {
+				return fmt.Errorf("failed to rebootstrap kubelet: %w", err)
+			}
+
+			if err := checkKubeletHealth(ctx, log); err != nil {
+				return fmt.Errorf("kubelet is not healthy after CA rotation: %w", err)
+			}
+
+			if err := oscChanges.completeCARotationKubelet(); err != nil {
+				return fmt.Errorf("failed completing CA key rotation for Kubelet: %w", err)
+			}
+
+			log.Info("Successfully rebootstrapped kubelet after CA rotation")
+		}
+
+		if oscChanges.CARotation.NodeAgent && features.DefaultFeatureGate.Enabled(features.NodeAgentAuthorizer) {
+			if err := r.requestNewKubeConfigForNodeAgent(ctx, log, nodeAgentConfig); err != nil {
+				return fmt.Errorf("failed requesting new certificate for node agent: %w", err)
+			}
+
+			if err := oscChanges.completeCARotationNodeAgent(); err != nil {
+				return fmt.Errorf("failed completing CA key rotation: %w", err)
+			}
+
+			if err := oscChanges.setMustRestartNodeAgent(true); err != nil {
+				return fmt.Errorf("failed setting mustRestartNodeAgent: %w", err)
+			}
+
+			log.Info("Successfully requested new kubeconfig for node agent after CA rotation")
+		}
+	}
+
+	return nil
+}
+
+func (r *Reconciler) rebootstrapKubelet(ctx context.Context, log logr.Logger, nodeAgentConfig *nodeagentconfigv1alpha1.NodeAgentConfiguration, node *corev1.Node) error {
+	log.Info("Rebootstrapping kubelet after CA rotation")
+
+	kubeletClientCertificatePath := filepath.Join(kubelet.PathKubeletDirectory, "pki", "kubelet-client-current.pem")
+	kubeletClientCertificate, err := r.FS.ReadFile(kubeletClientCertificatePath)
+	if err != nil && !errors.Is(err, afero.ErrFileNotFound) {
+		return fmt.Errorf("failed checking whether kubelet client certificate file %q exists: %w", kubeletClientCertificatePath, err)
+	}
+
+	// TODO: Exit early if already bootstrapped.
+	kubeConfig, err := clientcmd.LoadFromFile(kubelet.PathKubeconfigReal)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("unable to load kubeconfig file %q: %w", kubelet.PathKubeconfigReal, err)
+	} else if err == nil {
+		kubeConfig.Clusters = map[string]*clientcmdapi.Cluster{
+			"default-cluster": {
+				CertificateAuthorityData: nodeAgentConfig.APIServer.CABundle,
+				Server:                   nodeAgentConfig.APIServer.Server,
+			},
+		}
+
+		kubeConfig.AuthInfos = map[string]*clientcmdapi.AuthInfo{
+			"default-auth": {
+				ClientCertificateData: kubeletClientCertificate,
+				ClientKeyData:         kubeletClientCertificate,
+			},
+		}
+
+		if err := clientcmd.WriteToFile(*kubeConfig, kubelet.PathKubeconfigBootstrap); err != nil {
+			return fmt.Errorf("unable to write kubeconfig: %w", err)
+		}
+	}
+
+	kubeletClientCertificateDir := filepath.Join(kubelet.PathKubeletDirectory, "pki")
+	if err := r.FS.RemoveAll(kubeletClientCertificateDir); err != nil && !errors.Is(err, afero.ErrFileNotFound) {
+		return fmt.Errorf("unable to delete kubelet client certificate directory %q: %w", kubeletClientCertificateDir, err)
+	}
+	if err := r.FS.Remove(kubelet.PathKubeconfigReal); err != nil && !errors.Is(err, afero.ErrFileNotFound) {
+		return fmt.Errorf("failed removing kubeconfig file %q: %w", kubelet.PathKubeconfigReal, err)
+	}
+
+	if err := r.DBus.Restart(ctx, r.Recorder, node, kubeletUnitName); err != nil {
+		return fmt.Errorf("unable to restart unit %q: %w", kubeletUnitName, err)
+	}
+
+	log.Info("Successfully restarted kubelet after CA rotation", "node", node.Name)
+	return nil
+}
+
+func completeKubeletInPlaceUpdate(ctx context.Context, log logr.Logger, changes *operatingSystemConfigChanges) error {
+	if err := checkKubeletHealth(ctx, log); err != nil {
+		return fmt.Errorf("kubelet is not healthy after minor version/config update: %w", err)
+	}
+
+	if err := changes.completeKubeletMinorVersionUpdate(); err != nil {
+		return fmt.Errorf("failed completing kubelet minor version update: %w", err)
+	}
+
+	if err := changes.completeKubeletConfigUpdate(); err != nil {
+		return fmt.Errorf("failed completing kubelet config update: %w", err)
+	}
+
+	if err := changes.completeKubeletCpuManagerPolicyUpdate(); err != nil {
+		return fmt.Errorf("failed completing kubelet cpu manager policy update: %w", err)
+	}
+
+	return nil
+}
+
+func checkKubeletHealth(ctx context.Context, log logr.Logger) error {
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, healthcheckcontroller.DefaultKubeletHealthEndpoint, nil)
+	if err != nil {
+		log.Error(err, "Creating request to kubelet health endpoint failed")
+		return err
+	}
+
+	return retry.UntilTimeout(ctx, 5*time.Second, 5*time.Minute, func(_ context.Context) (done bool, err error) {
+		response, err := httpClient.Do(request)
+		if err != nil {
+			log.Error(err, "HTTP request to kubelet health endpoint failed")
+		} else if response.StatusCode == http.StatusOK {
+			log.Info("Kubelet is healthy after in-place update")
+			return true, nil
+		}
+
+		return false, nil
+	})
+}
+
+func (r *Reconciler) requestNewKubeConfigForNodeAgent(ctx context.Context, log logr.Logger, nodeAgentConfig *nodeagentconfigv1alpha1.NodeAgentConfiguration) error {
+	log.Info("Requesting new kubeconfig for node agent after CA rotation")
+
+	restConfig, err := kubernetes.RESTConfigFromKubeconfigFile(nodeagentconfigv1alpha1.KubeconfigFilePath)
+	if err != nil {
+		return fmt.Errorf("failed creating REST config from kubeconfig file %q: %w", nodeagentconfigv1alpha1.KubeconfigFilePath, err)
+	}
+
+	// Use the updated CA Bundle
+	restConfig.TLSClientConfig.CAData = nodeAgentConfig.APIServer.CABundle
+
+	return nodeagent.RequestAndStoreKubeconfig(ctx, log, r.FS, restConfig, r.MachineName)
+}
+
+func (r *Reconciler) deleteRemainingPods(ctx context.Context, log logr.Logger, node *corev1.Node) error {
+	// List all pods running on the node and delete them.
+	// This should recreate daemonset pods and pods with local storage.
+	log.Info("Deleting pods running on the node", "node", node.Name)
+	podList := &corev1.PodList{}
+	if err := r.Client.List(ctx, podList, client.MatchingFields{indexer.PodNodeName: node.Name}); err != nil {
+		return fmt.Errorf("failed listing pods for node %s: %w", node.Name, err)
+	}
+
+	return kubernetesutils.DeleteObjectsFromListConditionally(ctx, r.Client, podList, func(obj runtimepkg.Object) bool {
+		pod, ok := obj.(*corev1.Pod)
+		if !ok {
+			return false
+		}
+		return pod.Spec.NodeName == node.Name
+	})
+}
+
+// Copied from https://github.com/google/cadvisor/blob/5b649021c2dab9db34c8c37596f8f73c48548350/machine/operatingsystem_unix.go#L29-L54
+// This is how kubelet gets the OS name and version.
+
+var rex = regexp.MustCompile("(PRETTY_NAME)=(.*)")
+
+// getOperatingSystem gets the name of the current operating system.
+func getOperatingSystem() (string, error) {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" {
+		cmd := exec.Command("uname", "-s")
+		osName, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return string(osName), nil
+	}
+	bytes, err := os.ReadFile("/etc/os-release")
+	if err != nil && os.IsNotExist(err) {
+		// /usr/lib/os-release in stateless systems like Clear Linux
+		bytes, err = os.ReadFile("/usr/lib/os-release")
+	}
+	if err != nil {
+		return "", fmt.Errorf("error opening file : %v", err)
+	}
+	line := rex.FindAllStringSubmatch(string(bytes), -1)
+	if len(line) > 0 {
+		return strings.Trim(line[0][2], "\""), nil
+	}
+	return "Linux", nil
+}
+
+func getOSVersion() (string, error) {
+	osName, err := getOperatingSystem()
+	if err != nil {
+		return "", err
+	}
+
+	rex := regexp.MustCompile(`\d+(?:\.\d+)+`)
+	version := rex.FindString(osName)
+	if version == "" {
+		return "", fmt.Errorf("unable to find version in %q", osName)
+	}
+	return version, nil
+}
+
+func (r *Reconciler) updateOSInPlace(ctx context.Context, log logr.Logger, oscChanges *operatingSystemConfigChanges, osc *extensionsv1alpha1.OperatingSystemConfig, node *corev1.Node) error {
+	if !oscChanges.OSVersion.Changed {
+		return nil
+	}
+
+	log.Info("Adding annotation on node for OS update", "key", annotationUpdateOSVersion, "value", oscChanges.OSVersion.Version)
+	patch := client.MergeFrom(node.DeepCopy())
+	metav1.SetMetaDataAnnotation(&node.ObjectMeta, annotationUpdateOSVersion, oscChanges.OSVersion.Version)
+	if err := r.Client.Patch(ctx, node, patch); err != nil {
+		log.Error(err, "Failed to patch node with annotation for OS update", "node", node.Name)
+		return err
+	}
+
+	if osc.Status.InPlaceUpdates == nil || osc.Status.InPlaceUpdates.OSUpdate == nil || osc.Status.InPlaceUpdates.OSUpdate.Command ==
+		"" {
+		return fmt.Errorf("update command is not provided in OSC, cannot proceed with in-place update")
+	}
+
+	//TODO: Add failure handling
+	log.Info("Executing update script", "command", osc.Status.InPlaceUpdates.OSUpdate.Command, "args", strings.Join(osc.Status.InPlaceUpdates.OSUpdate.Args, " "))
+	output, err := Exec(ctx, osc.Status.InPlaceUpdates.OSUpdate.Command, osc.Status.InPlaceUpdates.OSUpdate.Args...)
+	if err != nil {
+		patch := client.MergeFrom(node.DeepCopy())
+		metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateFailed)
+		if err := r.Client.Patch(ctx, node, patch); err != nil {
+			return fmt.Errorf("failed patching node with update-failed label: %w", err)
+		}
+
+		log.Error(err, "Failed to execute update script", "output", output)
+		return err
+	}
+
+	return nil
+}
+
+func isInPlaceUpdate(changes *operatingSystemConfigChanges) bool {
+	return changes.OSVersion.Changed ||
+		changes.KubeletUpdate.MinorVersionUpdate ||
+		changes.KubeletUpdate.ConfigUpdate ||
+		changes.KubeletUpdate.CPUManagerPolicyUpdate ||
+		changes.CARotation.Kubelet ||
+		changes.CARotation.NodeAgent ||
+		changes.SAKeyRotation
 }
