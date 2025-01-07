@@ -7892,6 +7892,18 @@ Examples:
 - &lsquo;&lt; 1.26&rsquo; - supports only kubelet versions less than 1.26</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>minVersionForInPlaceUpdate</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>MinVersionForInPlaceUpdate specifies the minimum supported version from which an in-place update to this machine image version can be performed.</p>
+</td>
+</tr>
 </tbody>
 </table>
 <h3 id="core.gardener.cloud/v1beta1.MachineType">MachineType
@@ -8072,6 +8084,14 @@ This overrides any other common minimum size configuration from <code>spec.volum
 </tr>
 </tbody>
 </table>
+<h3 id="core.gardener.cloud/v1beta1.MachineUpdateStrategy">MachineUpdateStrategy
+(<code>string</code> alias)</p></h3>
+<p>
+(<em>Appears on:</em>
+<a href="#core.gardener.cloud/v1beta1.Worker">Worker</a>)
+</p>
+<p>
+</p>
 <h3 id="core.gardener.cloud/v1beta1.Maintenance">Maintenance
 </h3>
 <p>
@@ -13875,6 +13895,20 @@ ClusterAutoscalerOptions
 <td>
 <em>(Optional)</em>
 <p>ClusterAutoscaler contains the cluster autoscaler configurations for the worker pool.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>updateStrategy</code></br>
+<em>
+<a href="#core.gardener.cloud/v1beta1.MachineUpdateStrategy">
+MachineUpdateStrategy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>UpdateStrategy specifies the update strategy for the worker pool.</p>
 </td>
 </tr>
 </tbody>

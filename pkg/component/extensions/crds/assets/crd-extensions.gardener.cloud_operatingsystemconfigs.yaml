@@ -70,6 +70,31 @@ spec:
                 x-kubernetes-validations:
                 - message: Value is immutable
                   rule: self == oldSelf
+              credentialsRotation:
+                description: CredentialsRotation is a structure containing information
+                  about the last initiation time of the CA and ServiceAccountKey rotation.
+                properties:
+                  certificateAuthorities:
+                    description: CertificateAuthorities contains information about
+                      the certificate authority credential rotation.
+                    properties:
+                      lastInitiationTime:
+                        description: LastInitiationTime is the most recent time when
+                          the certificate authority credential rotation was initiated.
+                        format: date-time
+                        type: string
+                    type: object
+                  serviceAccountKey:
+                    description: ServiceAccountKey contains information about the
+                      service account key credential rotation.
+                    properties:
+                      lastInitiationTime:
+                        description: LastInitiationTime is the most recent time when
+                          the service account key credential rotation was initiated.
+                        format: date-time
+                        type: string
+                    type: object
+                type: object
               criConfig:
                 description: CRI config is a structure contains configurations of
                   the CRI library
@@ -264,6 +289,16 @@ spec:
                   - path
                   type: object
                 type: array
+              kubeletConfigHash:
+                description: KubeletConfigHash is the hash calculated on fields relevant
+                  for in-place update of the Kubelet configuration.
+                type: string
+              kubeletVersion:
+                description: KubeletVersion is the version of the Kubelet.
+                type: string
+              osVersion:
+                description: OSVersion is the version of the OperatingSystem.
+                type: string
               providerConfig:
                 description: ProviderConfig is the provider specific configuration.
                 type: object
@@ -527,6 +562,15 @@ spec:
                   - name
                   type: object
                 type: array
+              inPlaceUpdateConfig:
+                description: InPlaceUpdateConfig contains the configuration for in-place
+                  updates.
+                properties:
+                  osUpdateCommand:
+                    description: OSUpdateCommand defines the command responsible for
+                      performing machine image updates.
+                    type: string
+                type: object
               lastError:
                 description: LastError holds information about the last occurred error
                   during an operation.

@@ -1762,6 +1762,10 @@ message MachineImageVersion {
   // - '< 1.26' - supports only kubelet versions less than 1.26
   // +optional
   optional string kubeletVersionConstraint = 4;
+
+  // MinVersionForInPlaceUpdate specifies the minimum supported version from which an in-place update to this machine image version can be performed.
+  // +optional
+  optional string minVersionForInPlaceUpdate = 5;
 }
 
 // MachineType contains certain properties of a machine type.
@@ -3465,6 +3469,10 @@ message Worker {
   // ClusterAutoscaler contains the cluster autoscaler configurations for the worker pool.
   // +optional
   optional ClusterAutoscalerOptions clusterAutoscaler = 21;
+
+  // UpdateStrategy specifies the update strategy for the worker pool.
+  // +optional
+  optional string updateStrategy = 22;
 }
 
 // WorkerKubernetes contains configuration for Kubernetes components related to this worker pool.

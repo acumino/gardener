@@ -5419,6 +5419,13 @@ func schema_pkg_apis_core_v1beta1_MachineImageVersion(ref common.ReferenceCallba
 							Format:      "",
 						},
 					},
+					"minVersionForInPlaceUpdate": {
+						SchemaProps: spec.SchemaProps{
+							Description: "MinVersionForInPlaceUpdate specifies the minimum supported version from which an in-place update to this machine image version can be performed.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 				Required: []string{"version"},
 			},
@@ -9923,6 +9930,13 @@ func schema_pkg_apis_core_v1beta1_Worker(ref common.ReferenceCallback) common.Op
 						SchemaProps: spec.SchemaProps{
 							Description: "ClusterAutoscaler contains the cluster autoscaler configurations for the worker pool.",
 							Ref:         ref("github.com/gardener/gardener/pkg/apis/core/v1beta1.ClusterAutoscalerOptions"),
+						},
+					},
+					"updateStrategy": {
+						SchemaProps: spec.SchemaProps{
+							Description: "UpdateStrategy specifies the update strategy for the worker pool.",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 				},
