@@ -667,6 +667,24 @@ func IsUpdateStrategyInPlace(updateStrategy *gardencorev1beta1.MachineUpdateStra
 	return *updateStrategy == gardencorev1beta1.AutoInPlaceUpdate || *updateStrategy == gardencorev1beta1.ManualInPlaceUpdate
 }
 
+// IsUpdateStrategyAutoInPlace returns true if the given machine update strategy is AutoInPlaceUpdate.
+func IsUpdateStrategyAutoInPlace(updateStrategy *gardencorev1beta1.MachineUpdateStrategy) bool {
+	if updateStrategy == nil {
+		return false
+	}
+
+	return *updateStrategy == gardencorev1beta1.AutoInPlaceUpdate
+}
+
+// IsUpdateStrategyManualInPlace returns true if the given machine update strategy is ManualInPlaceUpdate.
+func IsUpdateStrategyManualInPlace(updateStrategy *gardencorev1beta1.MachineUpdateStrategy) bool {
+	if updateStrategy == nil {
+		return false
+	}
+
+	return *updateStrategy == gardencorev1beta1.ManualInPlaceUpdate
+}
+
 // IsShootIstioTLSTerminationEnabled returns true if the Istio TLS termination for the shoot kube-apiserver is enabled.
 func IsShootIstioTLSTerminationEnabled(shoot *gardencorev1beta1.Shoot) bool {
 	shootKubernetesVersion, err := semver.NewVersion(shoot.Spec.Kubernetes.Version)
