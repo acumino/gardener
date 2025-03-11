@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	extensionsv1alpha1helper "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1/helper"
 	"github.com/gardener/gardener/pkg/controllerutils"
+	"github.com/gardener/gardener/pkg/utils"
 	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	retryutils "github.com/gardener/gardener/pkg/utils/retry"
@@ -119,6 +121,15 @@ func (a *genericActuator) Reconcile(ctx context.Context, log logr.Logger, worker
 			return v1beta1helper.NewErrorWithCodes(newError, a.errorCodeCheckFunc(err)...)
 		}
 		return newError
+	}
+
+	// Update the worker status with the worker pool hash for in-place update worker pools.
+	// If we had reached this point, we can safely say for AutoInPlaceUpdate worker pools that they have been updated.
+	// Hence we can update their hash in the status.
+	// But for ManualInPlaceUpdate worker pools, we need to check if all the machine deployments for the worker pool are updated.
+	// The worker controller is triggered when a machine deployment is updated, so this can happen at a latter time as well.
+	if err := a.updateWorkerStatusInPlaceUpdateWorkerPoolHash(ctx, worker, cluster); err != nil {
+		return fmt.Errorf("failed to update the worker status with the worker pool hash for in-place update worker pools: %w", err)
 	}
 
 	// Delete all old machine deployments (i.e. those which were not previously computed but exist in the cluster).
@@ -237,6 +248,8 @@ func deployMachineDeployments(
 		}
 
 		if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, cl, machineDeployment, func() error {
+			metav1.SetMetaDataLabel(&machineDeployment.ObjectMeta, v1beta1constants.LabelWorkerName, worker.Name)
+			metav1.SetMetaDataLabel(&machineDeployment.ObjectMeta, v1beta1constants.LabelWorkerPool, deployment.PoolName)
 			for k, v := range deployment.ClusterAutoscalerAnnotations {
 				metav1.SetMetaDataAnnotation(&machineDeployment.ObjectMeta, k, v)
 			}
@@ -437,6 +450,90 @@ func (a *genericActuator) updateWorkerStatusMachineDeployments(ctx context.Conte
 	patch := client.MergeFrom(worker.DeepCopy())
 	worker.Status.MachineDeployments = statusMachineDeployments
 	worker.Status.MachineDeploymentsLastUpdateTime = &updateTime
+	return a.seedClient.Status().Patch(ctx, worker, patch)
+}
+
+func (a *genericActuator) updateWorkerStatusInPlaceUpdateWorkerPoolHash(ctx context.Context, worker *extensionsv1alpha1.Worker, cluster *extensionscontroller.Cluster) error {
+	// Calculate worker pool hash for worker pools which are in-place updated.
+	// This hash doesn't include the hash of provider config from the pool.
+	var (
+		inPlaceUpdateWorkerPoolToHashMap = make(map[string]string, len(worker.Spec.Pools))
+		currentWorkerPools               = sets.New[string]()
+	)
+
+	for _, pool := range worker.Spec.Pools {
+		// Skip the worker pool if it's strategy is not in-place update.
+		if !v1beta1helper.IsUpdateStrategyInPlace(pool.UpdateStrategy) {
+			continue
+		}
+
+		currentWorkerPools.Insert(pool.Name)
+
+		if v1beta1helper.IsUpdateStrategyManualInPlace(pool.UpdateStrategy) {
+			// Check if all the machine deployments for the worker pool are updated.
+			mcdList := &machinev1alpha1.MachineDeploymentList{}
+			if err := a.seedClient.List(ctx,
+				mcdList,
+				client.InNamespace(worker.Namespace),
+				client.MatchingLabels{
+					v1beta1constants.LabelWorkerName: worker.Name,
+					v1beta1constants.LabelWorkerPool: pool.Name,
+				},
+			); err != nil {
+				return fmt.Errorf("failed to list machine deployments for worker pool %q: %w", pool.Name, err)
+			}
+
+			// Skip the worker pool if there are machine deployments which are not updated.
+			outDatedMachineDeploymentsPresent := false
+			for _, mcd := range mcdList.Items {
+				if mcd.Status.UpdatedReplicas < mcd.Status.Replicas {
+					outDatedMachineDeploymentsPresent = true
+					break
+				}
+			}
+
+			if outDatedMachineDeploymentsPresent {
+				continue
+			}
+		}
+
+		workerPoolHash, err := gardenerutils.CalculateWorkerPoolHashForInPlaceUpdate(
+			pool.Name,
+			pool.KubernetesVersion,
+			pool.KubeletConfig,
+			pool.MachineImage.Version,
+			cluster.Shoot.Status.Credentials,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to calculate worker pool hash for in-place update: %w", err)
+		}
+
+		inPlaceUpdateWorkerPoolToHashMap[pool.Name] = workerPoolHash
+	}
+
+	var currentMap map[string]string
+	if worker.Status.InPlaceUpdates != nil {
+		currentMap = worker.Status.InPlaceUpdates.WorkerPoolToHashMap
+	}
+
+	// No need to patch if the status hash map is already up-to-date.
+	if maps.Equal(inPlaceUpdateWorkerPoolToHashMap, currentMap) {
+		fmt.Printf("equal maps")
+		return nil
+	}
+
+	patch := client.MergeFrom(worker.DeepCopy())
+	// Remove the worker pools that are not present in the current worker spec.
+	for workerPool := range currentMap {
+		if !currentWorkerPools.Has(workerPool) {
+			delete(currentMap, workerPool)
+		}
+	}
+
+	if worker.Status.InPlaceUpdates == nil {
+		worker.Status.InPlaceUpdates = &extensionsv1alpha1.InPlaceUpdatesWorkerStatus{}
+	}
+	worker.Status.InPlaceUpdates.WorkerPoolToHashMap = utils.MergeStringMaps(currentMap, inPlaceUpdateWorkerPoolToHashMap)
 	return a.seedClient.Status().Patch(ctx, worker, patch)
 }
 

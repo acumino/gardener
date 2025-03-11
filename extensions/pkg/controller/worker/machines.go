@@ -19,7 +19,6 @@ import (
 
 	extensionscontroller "github.com/gardener/gardener/extensions/pkg/controller"
 	"github.com/gardener/gardener/extensions/pkg/util"
-	"github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	v1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	extensionsv1alpha1 "github.com/gardener/gardener/pkg/apis/extensions/v1alpha1"
 	"github.com/gardener/gardener/pkg/utils"
@@ -33,6 +32,7 @@ var diskSizeRegex = regexp.MustCompile(`^(\d+)`)
 // managed by the machine-controller-manager.
 type MachineDeployment struct {
 	Name                         string
+	PoolName                     string
 	ClassName                    string
 	SecretName                   string
 	Minimum                      int32
@@ -170,7 +170,7 @@ func WorkerPoolHashV1(pool extensionsv1alpha1.WorkerPool, cluster *extensionscon
 func WorkerPoolHashV2(nodeAgentSecretName string, pool extensionsv1alpha1.WorkerPool, cluster *extensionscontroller.Cluster, additionalData ...string) (string, error) {
 	data := []string{nodeAgentSecretName}
 
-	if helper.IsUpdateStrategyInPlace(pool.UpdateStrategy) {
+	if v1beta1helper.IsUpdateStrategyInPlace(pool.UpdateStrategy) {
 		workerPoolHash, err := gardenerutils.CalculateWorkerPoolHashForInPlaceUpdate(
 			pool.Name,
 			pool.KubernetesVersion,

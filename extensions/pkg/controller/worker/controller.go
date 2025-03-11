@@ -7,9 +7,11 @@ package worker
 import (
 	"context"
 
+	machinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -66,6 +68,12 @@ func Add(mgr manager.Manager, args AddArgs) error {
 			&handler.EnqueueRequestForObject{},
 			builder.WithPredicates(predicates...),
 		).
+		WatchesRawSource(source.Kind[client.Object](
+			mgr.GetCache(),
+			&machinev1alpha1.MachineDeployment{},
+			handler.EnqueueRequestsFromMapFunc(MachineDeploymentToWorkerMapper()),
+			machineDeploymentStatusChangedPredicate(),
+		)).
 		Build(NewReconciler(mgr, args.Actuator))
 	if err != nil {
 		return err
@@ -82,4 +90,43 @@ func Add(mgr manager.Manager, args AddArgs) error {
 	}
 
 	return nil
+}
+
+func machineDeploymentStatusChangedPredicate() predicate.Funcs {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			machineDeployment, ok := e.Object.(*machinev1alpha1.MachineDeployment)
+			if !ok {
+				return false
+			}
+
+			return machineDeployment.Spec.Strategy.Type == machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType &&
+				(machineDeployment.Spec.Strategy.InPlaceUpdate != nil && machineDeployment.Spec.Strategy.InPlaceUpdate.OrchestrationType == machinev1alpha1.OrchestrationTypeManual)
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldMachineDeployment, ok := e.ObjectOld.(*machinev1alpha1.MachineDeployment)
+			if !ok {
+				return false
+			}
+
+			newMachineDeployment, ok := e.ObjectNew.(*machinev1alpha1.MachineDeployment)
+			if !ok {
+				return false
+			}
+
+			if newMachineDeployment.Spec.Strategy.Type != machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType ||
+				(newMachineDeployment.Spec.Strategy.InPlaceUpdate != nil && newMachineDeployment.Spec.Strategy.InPlaceUpdate.OrchestrationType != machinev1alpha1.OrchestrationTypeManual) {
+				return false
+			}
+
+			return oldMachineDeployment.Status.UpdatedReplicas != newMachineDeployment.Status.UpdatedReplicas &&
+				newMachineDeployment.Status.UpdatedReplicas == newMachineDeployment.Status.Replicas
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(_ event.GenericEvent) bool {
+			return false
+		},
+	}
 }
