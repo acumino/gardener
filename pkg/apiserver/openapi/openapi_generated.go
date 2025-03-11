@@ -4216,7 +4216,7 @@ func schema_pkg_apis_core_v1beta1_InPlaceUpdatesStatus(ref common.ReferenceCallb
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "InPlaceUpdates contains information about in-place updates for the Shoot workers.",
+				Description: "InPlaceUpdatesStatus contains information about in-place updates for the Shoot workers.",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"pendingWorkersRollouts": {

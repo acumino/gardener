@@ -6033,7 +6033,7 @@ string
 <a href="#core.gardener.cloud/v1beta1.ShootStatus">ShootStatus</a>)
 </p>
 <p>
-<p>InPlaceUpdates contains information about in-place updates for the Shoot workers.</p>
+<p>InPlaceUpdatesStatus contains information about in-place updates for the Shoot workers.</p>
 </p>
 <table>
 <thead>
