@@ -320,6 +320,13 @@ func (a *genericActuator) waitUntilWantedMachineDeploymentsAvailable(ctx context
 		// map the owner reference to the machine sets
 		ownerReferenceToMachineSet := gardenerutils.BuildOwnerToMachineSetsMap(machineSets.Items)
 
+		// Get the list of all machines
+		machines := &machinev1alpha1.MachineList{}
+		if err := a.seedClient.List(ctx, machines, client.InNamespace(worker.Namespace)); err != nil {
+			return retryutils.SevereError(err)
+		}
+		ownerReferenceToMachine := gardenerutils.BuildOwnerToMachinesMap(machines.Items)
+
 		// Collect the numbers of available and desired replicas.
 		for _, deployment := range machineDeployments.Items {
 			wantedDeployment := wantedMachineDeployments.FindByName(deployment.Name)
@@ -328,6 +335,8 @@ func (a *genericActuator) waitUntilWantedMachineDeploymentsAvailable(ctx context
 			if wantedDeployment == nil {
 				continue
 			}
+
+			isStrategyManualInPlace := deployment.Spec.Strategy.Type == machinev1alpha1.InPlaceUpdateMachineDeploymentStrategyType && deployment.Spec.Strategy.InPlaceUpdate != nil && deployment.Spec.Strategy.InPlaceUpdate.OrchestrationType == machinev1alpha1.OrchestrationTypeManual
 
 			// We want to wait until all wanted machine deployments have as many
 			// available replicas as desired (specified in the .spec.replicas).
@@ -362,9 +371,13 @@ func (a *genericActuator) waitUntilWantedMachineDeploymentsAvailable(ctx context
 
 			// If the Shoot is not hibernated we want to make sure that the machine set with the right
 			// machine class for the machine deployment is deployed by the machine-controller-manager
-			if machineSet := extensionsworkerhelper.GetMachineSetWithMachineClass(wantedDeployment.Name, wantedDeployment.ClassName, ownerReferenceToMachineSet); machineSet == nil {
+
+			latestMachineSet := extensionsworkerhelper.GetMachineSetWithMachineClass(wantedDeployment.Name, wantedDeployment.ClassName, ownerReferenceToMachineSet)
+			if latestMachineSet == nil {
 				return retryutils.MinorError(fmt.Errorf("waiting for the machine-controller-manager to create the updated machine set for the machine deployment (%s/%s)", deployment.Namespace, deployment.Name))
 			}
+
+			oldMachineSets := extensionsworkerhelper.GetOldMachineSets(machineSets, *latestMachineSet)
 
 			// If the Shoot is not hibernated we want to wait until all wanted machine deployments have as many
 			// available replicas as desired (specified in the .spec.replicas).
