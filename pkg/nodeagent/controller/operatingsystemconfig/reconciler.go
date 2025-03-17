@@ -57,7 +57,7 @@ import (
 	"github.com/gardener/gardener/pkg/nodeagent/registry"
 	"github.com/gardener/gardener/pkg/utils/flow"
 	kubernetesutils "github.com/gardener/gardener/pkg/utils/kubernetes"
-	"github.com/gardener/gardener/pkg/utils/retry"
+	retryutils "github.com/gardener/gardener/pkg/utils/retry"
 )
 
 const (
@@ -206,7 +206,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 	}
 
 	if oscChanges.KubeletUpdate.MinorVersionUpdate || oscChanges.KubeletUpdate.ConfigUpdate || oscChanges.KubeletUpdate.CPUManagerPolicyUpdate {
-		if err := completeKubeletInPlaceUpdate(ctx, log, oscChanges); err != nil {
+		if err := r.completeKubeletInPlaceUpdate(ctx, log, oscChanges, node); err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed completing kubelet in-place update: %w", err)
 		}
 	}
@@ -269,6 +269,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 			log.Info("Labeling node with MCM label", "node", node.Name, "label", machinev1alpha1.LabelKeyNodeUpdateResult, "value", machinev1alpha1.LabelValueNodeUpdateSuccessful)
 			patch := client.MergeFrom(node.DeepCopy())
 			metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateSuccessful)
+			delete(node.Annotations, machinev1alpha1.AnnotationKeyMachineUpdateFailedReason)
 			delete(node.Annotations, annotationUpdateOSVersion)
 			if err := r.Client.Patch(ctx, node, patch); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed patching node after in-place update: %w", err)
@@ -694,7 +695,7 @@ func (r *Reconciler) performCertificateRotationInPlace(ctx context.Context, log 
 				return fmt.Errorf("failed to rebootstrap kubelet: %w", err)
 			}
 
-			if err := checkKubeletHealth(ctx, log); err != nil {
+			if err := r.checkKubeletHealth(ctx, log, node); err != nil {
 				return fmt.Errorf("kubelet is not healthy after CA rotation: %w", err)
 			}
 
@@ -774,8 +775,8 @@ func (r *Reconciler) rebootstrapKubelet(ctx context.Context, log logr.Logger, no
 	return nil
 }
 
-func completeKubeletInPlaceUpdate(ctx context.Context, log logr.Logger, changes *operatingSystemConfigChanges) error {
-	if err := checkKubeletHealth(ctx, log); err != nil {
+func (r *Reconciler) completeKubeletInPlaceUpdate(ctx context.Context, log logr.Logger, changes *operatingSystemConfigChanges, node *corev1.Node) error {
+	if err := r.checkKubeletHealth(ctx, log, node); err != nil {
 		return fmt.Errorf("kubelet is not healthy after minor version/config update: %w", err)
 	}
 
@@ -794,7 +795,7 @@ func completeKubeletInPlaceUpdate(ctx context.Context, log logr.Logger, changes 
 	return nil
 }
 
-func checkKubeletHealth(ctx context.Context, log logr.Logger) error {
+func (r *Reconciler) checkKubeletHealth(ctx context.Context, log logr.Logger, node *corev1.Node) error {
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, healthcheckcontroller.DefaultKubeletHealthEndpoint, nil)
 	if err != nil {
@@ -802,17 +803,26 @@ func checkKubeletHealth(ctx context.Context, log logr.Logger) error {
 		return err
 	}
 
-	return retry.UntilTimeout(ctx, 5*time.Second, 5*time.Minute, func(_ context.Context) (done bool, err error) {
-		response, err := httpClient.Do(request)
-		if err != nil {
-			log.Error(err, "HTTP request to kubelet health endpoint failed")
+	if err := retryutils.UntilTimeout(ctx, 5*time.Second, 5*time.Minute, func(_ context.Context) (done bool, err error) {
+		if response, err2 := httpClient.Do(request); err2 != nil {
+			log.Error(err2, "HTTP request to kubelet health endpoint failed")
 		} else if response.StatusCode == http.StatusOK {
 			log.Info("Kubelet is healthy after in-place update")
 			return true, nil
 		}
 
 		return false, nil
-	})
+	}); err != nil {
+		log.Info("Labeling node with MCM label", "node", node.Name, "label", machinev1alpha1.LabelKeyNodeUpdateResult, "value", machinev1alpha1.LabelValueNodeUpdateFailed)
+		patch := client.MergeFrom(node.DeepCopy())
+		metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateFailed)
+		metav1.SetMetaDataAnnotation(&node.ObjectMeta, machinev1alpha1.AnnotationKeyMachineUpdateFailedReason, "kubelet is not healthy after in-place update")
+		if err2 := r.Client.Patch(ctx, node, patch); err2 != nil {
+			return fmt.Errorf("failed patching node with update-failed label: %w", err2)
+		}
+	}
+
+	return nil
 }
 
 func (r *Reconciler) requestNewKubeConfigForNodeAgent(ctx context.Context, log logr.Logger, nodeAgentConfig *nodeagentconfigv1alpha1.NodeAgentConfiguration) error {
@@ -909,18 +919,34 @@ func (r *Reconciler) updateOSInPlace(ctx context.Context, log logr.Logger, oscCh
 		return fmt.Errorf("update command is not provided in OSC, cannot proceed with in-place update")
 	}
 
-	//TODO: Add failure handling
-	log.Info("Executing update script", "command", osc.Status.InPlaceUpdates.OSUpdate.Command, "args", strings.Join(osc.Status.InPlaceUpdates.OSUpdate.Args, " "))
-	output, err := Exec(ctx, osc.Status.InPlaceUpdates.OSUpdate.Command, osc.Status.InPlaceUpdates.OSUpdate.Args...)
-	if err != nil {
-		patch := client.MergeFrom(node.DeepCopy())
-		metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateFailed)
-		if err := r.Client.Patch(ctx, node, patch); err != nil {
-			return fmt.Errorf("failed patching node with update-failed label: %w", err)
+	var (
+		retriableErrorPattern    = regexp.MustCompile(`(?i)network problems`)
+		nonRetriableErrorPattern = regexp.MustCompile(`(?i)invalid arguments|system failure`)
+	)
+
+	if err := retryutils.UntilTimeout(ctx, 30*time.Second, 5*time.Minute, func(_ context.Context) (done bool, err error) {
+		log.Info("Executing update script", "command", osc.Status.InPlaceUpdates.OSUpdate.Command, "args", strings.Join(osc.Status.InPlaceUpdates.OSUpdate.Args, " "))
+
+		cmd := exec.CommandContext(ctx, osc.Status.InPlaceUpdates.OSUpdate.Command, osc.Status.InPlaceUpdates.OSUpdate.Args...)
+		if output, err2 := cmd.CombinedOutput(); err2 != nil {
+			if retriableErrorPattern.MatchString(string(output)) {
+				return retryutils.MinorError(fmt.Errorf("retriable error detected: %w, output: %s", err2, string(output)))
+			} else if nonRetriableErrorPattern.MatchString(string(output)) {
+				return retryutils.SevereError(fmt.Errorf("non-retriable error detected: %w, output: %s", err2, string(output)))
+			}
+
+			return retryutils.SevereError(fmt.Errorf("no specific error detected: %w, output: %s", err2, string(output)))
 		}
 
-		log.Error(err, "Failed to execute update script", "output", output)
-		return err
+		return retryutils.Ok()
+	}); err != nil {
+		log.Info("Labeling node with MCM label", "node", node.Name, "label", machinev1alpha1.LabelKeyNodeUpdateResult, "value", machinev1alpha1.LabelValueNodeUpdateFailed)
+		patch := client.MergeFrom(node.DeepCopy())
+		metav1.SetMetaDataLabel(&node.ObjectMeta, machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateFailed)
+		metav1.SetMetaDataAnnotation(&node.ObjectMeta, machinev1alpha1.AnnotationKeyMachineUpdateFailedReason, fmt.Sprintf("failed to execute update command: %v", err))
+		if err2 := r.Client.Patch(ctx, node, patch); err2 != nil {
+			return fmt.Errorf("failed patching node with update-failed label: %w", err2)
+		}
 	}
 
 	return nil
