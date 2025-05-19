@@ -113,14 +113,23 @@ func RunTest(
 		By("Update .kubernetes.version to " + kubernetesVersion + " for pool " + poolName)
 	}
 
-	var hasAutoInPlaceUpdateWorkers, hasManualInPlaceUpdateWorkers, hasInPlaceUpdateWorkers bool
+	var (
+		hasAutoInPlaceUpdateWorkers, hasManualInPlaceUpdateWorkers, hasInPlaceUpdateWorkers bool
+		totalMaxSurgeAcrossInPlaceUpdateWorkers                                             int
+	)
 
 	for _, worker := range f.Shoot.Spec.Provider.Workers {
 		switch ptr.Deref(worker.UpdateStrategy, "") {
 		case gardencorev1beta1.AutoInPlaceUpdate:
+			if worker.MaxSurge != nil {
+				totalMaxSurgeAcrossInPlaceUpdateWorkers += worker.MaxSurge.IntValue()
+			}
 			hasAutoInPlaceUpdateWorkers = true
 		case gardencorev1beta1.ManualInPlaceUpdate:
 			hasManualInPlaceUpdateWorkers = true
+			if worker.MaxSurge != nil {
+				totalMaxSurgeAcrossInPlaceUpdateWorkers += worker.MaxSurge.IntValue()
+			}
 		}
 	}
 
@@ -161,7 +170,9 @@ func RunTest(
 
 	if hasInPlaceUpdateWorkers {
 		nodesOfInPlaceWorkersAfterTest := inplace.FindNodesOfInPlaceWorkers(ctx, f.ShootClient.Client(), f.Shoot)
+		commonNodes := nodesOfInPlaceWorkersAfterTest.Intersection(nodesOfInPlaceWorkersBeforeTest)
 		Expect(nodesOfInPlaceWorkersBeforeTest.UnsortedList()).To(ConsistOf(nodesOfInPlaceWorkersAfterTest.UnsortedList()))
+		Expect(commonNodes.Len()).To(Equal(nodesOfInPlaceWorkersBeforeTest.Len() - totalMaxSurgeAcrossInPlaceUpdateWorkers))
 
 		inplace.ItShouldVerifyInPlaceUpdateCompletion(f.GardenClient.Client(), f.Shoot)
 	}

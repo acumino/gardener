@@ -31,15 +31,22 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 			s.Shoot.Spec.Kubernetes.Version = kubernetesTargetVersion
 
 			// create two worker pools which explicitly specify the kubernetes version
-			pool1 := DefaultWorker("auto", ptr.To(gardencorev1beta1.AutoInPlaceUpdate))
+			pool1 := DefaultWorker("auto-1", ptr.To(gardencorev1beta1.AutoInPlaceUpdate))
 			pool1.Kubernetes = &gardencorev1beta1.WorkerKubernetes{Version: &s.Shoot.Spec.Kubernetes.Version}
 			pool1.Minimum = 2
 			pool1.Maximum = 2
 			pool1.MaxUnavailable = ptr.To(intstr.FromInt(1))
 			pool1.MaxSurge = ptr.To(intstr.FromInt(0))
 
-			pool2 := DefaultWorker("manual", ptr.To(gardencorev1beta1.ManualInPlaceUpdate))
-			pool2.Kubernetes = &gardencorev1beta1.WorkerKubernetes{
+			pool2 := DefaultWorker("auto-2", ptr.To(gardencorev1beta1.AutoInPlaceUpdate))
+			pool2.Kubernetes = &gardencorev1beta1.WorkerKubernetes{Version: &s.Shoot.Spec.Kubernetes.Version}
+			pool2.Minimum = 1
+			pool2.Maximum = 2
+			pool2.MaxUnavailable = ptr.To(intstr.FromInt(0))
+			pool2.MaxSurge = ptr.To(intstr.FromInt(1))
+
+			pool3 := DefaultWorker("manual", ptr.To(gardencorev1beta1.ManualInPlaceUpdate))
+			pool3.Kubernetes = &gardencorev1beta1.WorkerKubernetes{
 				Version: ptr.To(kubernetesSourceVersion),
 				Kubelet: &gardencorev1beta1.KubeletConfig{
 					CPUManagerPolicy: ptr.To("none"),
@@ -50,7 +57,9 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 				},
 			}
 
-			s.Shoot.Spec.Provider.Workers = []gardencorev1beta1.Worker{pool1, pool2}
+			totalMaxSurgeAcrossWorkers := pool1.MaxSurge.IntValue() + pool2.MaxSurge.IntValue()
+
+			s.Shoot.Spec.Provider.Workers = []gardencorev1beta1.Worker{pool1, pool2, pool3}
 
 			ItShouldCreateShoot(s)
 			ItShouldWaitForShootToBeReconciledAndHealthy(s)
@@ -124,7 +133,12 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 			inclusterclient.VerifyInClusterAccessToAPIServer(s)
 
 			nodesOfInPlaceWorkersAfterTest := inplace.ItShouldFindNodesOfInPlaceWorkers(s)
-			Expect(nodesOfInPlaceWorkersBeforeTest.UnsortedList()).To(ConsistOf(nodesOfInPlaceWorkersAfterTest.UnsortedList()))
+
+			It("Verifies that the number of old nodes has decreased by the total max surge", func() {
+				commonNodes := nodesOfInPlaceWorkersAfterTest.Intersection(nodesOfInPlaceWorkersBeforeTest)
+				Expect(commonNodes.Len()).To(Equal(nodesOfInPlaceWorkersBeforeTest.Len() - totalMaxSurgeAcrossWorkers))
+			})
+
 			inplace.ItShouldVerifyInPlaceUpdateCompletion(s.GardenClient, s.Shoot)
 
 			ItShouldDeleteShoot(s)
