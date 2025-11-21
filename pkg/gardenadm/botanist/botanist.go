@@ -58,6 +58,11 @@ type GardenadmBotanist struct {
 	Extensions []Extension
 	Resources  gardenadm.Resources
 
+	// Zone is the availability zone to in which the new node is being added to. This is used to set the
+	// topology.kubernetes.io/zone label on the node resource.
+	// This field is only relevant for shoot with unmanaged infrastructure.
+	Zone string
+
 	// Bastion is only set for `gardenadm bootstrap`.
 	Bastion *bastion.Bastion
 

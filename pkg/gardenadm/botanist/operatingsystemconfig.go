@@ -129,6 +129,15 @@ func (b *GardenadmBotanist) ApplyOperatingSystemConfig(ctx context.Context) erro
 		return fmt.Errorf("failed fetching node object by hostname %q: %w", b.HostName, err)
 	}
 
+	// if the zone is set, apply the topology.kubernetes.io/zone label to the node
+	if b.Zone != "" {
+		patch := client.MergeFrom(node.DeepCopy())
+		metav1.SetMetaDataLabel(&node.ObjectMeta, corev1.LabelTopologyZone, b.Zone)
+		if err := b.SeedClientSet.Client().Patch(ctx, node, patch); err != nil {
+			return fmt.Errorf("failed patching node %q with zone label %q: %w", node.Name, b.Zone, err)
+		}
+	}
+
 	reconcilerCtx, cancelFunc := context.WithCancel(ctx)
 	reconcilerCtx = log.IntoContext(reconcilerCtx, b.Logger.WithName("operatingsystemconfig-reconciler").WithValues("secret", client.ObjectKeyFromObject(b.operatingSystemConfigSecret)))
 
