@@ -370,6 +370,9 @@ func bootstrapControlPlane(ctx context.Context, opts *Options) (*botanist.Garden
 		return nil, err
 	}
 
+	// Set the zone for topology labeling
+	b.Zone = opts.Zone
+
 	kubeconfigFileExists, err := b.FS.Exists(botanist.PathKubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking whether kubeconfig file %s exists: %w", botanist.PathKubeconfig, err)

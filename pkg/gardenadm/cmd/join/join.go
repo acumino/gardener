@@ -206,6 +206,22 @@ func getWorkerPoolName(ctx context.Context, opts *Options, b *botanist.Gardenadm
 		return "", fmt.Errorf("failed reading extensions.gardener.cloud/v1alpha1.Cluster object: %w", err)
 	}
 
+	if !b.Shoot.HasManagedInfrastructure() {
+		// Validate and update zone based on shoot specification
+		nodeType := "worker"
+		if opts.ControlPlane {
+			nodeType = "control-plane"
+		}
+		effectiveZone, err := cmd.ValidateZone(cluster.Shoot, opts.Zone, nodeType)
+		if err != nil {
+			return "", fmt.Errorf("zone validation failed: %w", err)
+		}
+		opts.Zone = effectiveZone
+
+		// Set the zone on the botanist for topology labeling
+		b.Zone = effectiveZone
+	}
+
 	if opts.ControlPlane {
 		return getControlPlaneWorkerPoolName(cluster.Shoot.Spec.Provider.Workers)
 	}
