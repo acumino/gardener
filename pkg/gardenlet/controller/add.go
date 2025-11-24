@@ -81,6 +81,16 @@ func AddToManager(
 		return fmt.Errorf("failed creating seed clientset: %w", err)
 	}
 
+	if gardenletutils.IsResponsibleForTesting() {
+		mgr.GetLogger().Info("Running in self-hosted shoot, registering minimal set of controllers")
+
+		if err := (&gardenlet.Reconciler{
+			Config: *cfg,
+		}).AddToManager(mgr, gardenCluster, seedClientSet); err != nil {
+			return fmt.Errorf("failed adding Gardenlet controller: %w", err)
+		}
+	}
+
 	if gardenletutils.IsResponsibleForSelfHostedShoot() {
 		mgr.GetLogger().Info("Running in self-hosted shoot, registering minimal set of controllers")
 

@@ -223,6 +223,11 @@ func run(ctx context.Context, cancel context.CancelFunc, log logr.Logger, cfg *g
 		}, runner.BootstrapRunnables...)
 	}
 
+	if gardenlet.IsResponsibleForTesting() {
+		log.Info("Running in testing environment, registering testing controllers")
+		// do something here
+	}
+
 	if err := mgr.Add(runner); err != nil {
 		return fmt.Errorf("failed adding runnables to manager: %w", err)
 	}
@@ -472,6 +477,10 @@ func (g *garden) Start(ctx context.Context) error {
 
 	if err := controllerutils.AddAllRunnables(g.mgr, runnables...); err != nil {
 		return err
+	}
+
+	if gardenlet.IsResponsibleForTesting() {
+		// do something here
 	}
 
 	if gardenlet.IsResponsibleForSelfHostedShoot() {

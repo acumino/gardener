@@ -90,6 +90,11 @@ func IsResponsibleForSelfHostedShoot() bool {
 	return os.Getenv("NAMESPACE") == metav1.NamespaceSystem
 }
 
+// IsResponsibleForTesting checks if this is running in the testing environment.
+func IsResponsibleForTesting() bool {
+	return os.Getenv("NAMESPACE") == metav1.NamespaceDefault
+}
+
 // ShootMetaFromBootstrapToken extracts the shoot namespace and name from the description of the given bootstrap token
 // secret. This only works if the secret has been created with 'gardenadm token create' which writes a proper
 // description.
