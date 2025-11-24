@@ -90,6 +90,12 @@ BUILD_PACKAGES ?= ./...
 build:
 	@EFFECTIVE_VERSION=$(EFFECTIVE_VERSION) ./hack/build.sh -o $(BUILD_OUTPUT_FILE) $(BUILD_PACKAGES)
 
+
+.PHONY: docker-image-gardenlet
+docker-image-gardenlet:
+	@docker buildx build --load --build-arg EFFECTIVE_VERSION=$(EFFECTIVE_VERSION) --platform $(TARGET_PLATFORMS) -t acuminous/gardener/gardenlet:$(EFFECTIVE_VERSION) -t acuminous/gardener/gardenlet:latest                 -f Dockerfile --target gardenlet .
+
+
 .PHONY: docker-images
 docker-images:
 	@echo "Building docker images with version and tag $(EFFECTIVE_VERSION) for target platforms $(TARGET_PLATFORMS)"
