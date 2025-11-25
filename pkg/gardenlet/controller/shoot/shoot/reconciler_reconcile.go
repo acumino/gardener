@@ -31,6 +31,7 @@ import (
 	"github.com/gardener/gardener/pkg/utils/errors"
 	"github.com/gardener/gardener/pkg/utils/flow"
 	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
+	gardenletutils "github.com/gardener/gardener/pkg/utils/gardener/gardenlet"
 	"github.com/gardener/gardener/pkg/utils/gardener/secretsrotation"
 	"github.com/gardener/gardener/pkg/utils/gardener/shootstate"
 	"github.com/gardener/gardener/pkg/utils/gardener/tokenrequest"
@@ -1026,6 +1027,10 @@ func (r *Reconciler) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Dependencies: flow.NewTaskIDs(deployKubeControllerManager, deployControlPlane),
 		})
 	)
+
+	if gardenletutils.IsResponsibleForTesting() {
+		g = flow.NewGraph(fmt.Sprintf("Shoot cluster reconciliation in test mode for shoot %s", o.Shoot.GetInfo().GetName()))
+	}
 
 	f := g.Compile()
 
