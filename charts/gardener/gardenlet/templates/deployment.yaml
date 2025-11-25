@@ -30,7 +30,11 @@ heritage: "{{ .Release.Service }}"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+{{- if not .Values.hollow }}
   name: gardenlet
+{{- else }}
+  name: "gardenlet-{{ .Values.config.seedConfig.metadata.name }}"
+{{- end }}
   namespace: {{ .Release.Namespace }}
   labels:
     high-availability-config.resources.gardener.cloud/skip: "true"

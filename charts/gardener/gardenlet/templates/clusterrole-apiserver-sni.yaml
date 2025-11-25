@@ -1,41 +1,43 @@
-# ---
-# apiVersion: rbac.authorization.k8s.io/v1
-# kind: ClusterRole
-# metadata:
-#   name: gardener.cloud:system:gardenlet:apiserver-sni
-#   labels:
-#     app: gardener
-#     role: gardenlet
-#     chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" | trunc 32 }}"
-#     release: "{{ .Release.Name }}"
-#     heritage: "{{ .Release.Service }}"
-# rules:
-# - apiGroups:
-#   - networking.istio.io
-#   resources:
-#   - envoyfilters
-#   - gateways
-#   - virtualservices
-#   verbs:
-#   - create
-# - apiGroups:
-#   - networking.istio.io
-#   resources:
-#   - envoyfilters
-#   - gateways
-#   resourceNames:
-#   - proxy-protocol
-#   verbs:
-#   - get
-#   - patch
-#   - update
-# - apiGroups:
-#   - networking.istio.io
-#   resources:
-#   - virtualservices
-#   resourceNames:
-#   - proxy-protocol-blackhole
-#   verbs:
-#   - get
-#   - patch
-#   - update
+{{- if not .Values.hollow }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gardener.cloud:system:gardenlet:apiserver-sni
+  labels:
+    app: gardener
+    role: gardenlet
+    chart: "{{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" | trunc 32 }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+rules:
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - envoyfilters
+  - gateways
+  - virtualservices
+  verbs:
+  - create
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - envoyfilters
+  - gateways
+  resourceNames:
+  - proxy-protocol
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  resourceNames:
+  - proxy-protocol-blackhole
+  verbs:
+  - get
+  - patch
+  - update
+{{- end }}

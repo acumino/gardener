@@ -1,3 +1,4 @@
+hollow: false
 replicaCount: 2
 revisionHistoryLimit: 2
 serviceAccountName: gardenlet
