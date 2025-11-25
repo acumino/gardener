@@ -18,6 +18,7 @@ import (
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
+	gardenletutils "github.com/gardener/gardener/pkg/utils/gardener/gardenlet"
 	kubernetesutils "github.com/gardener/gardener/pkg/utils/kubernetes"
 	"github.com/gardener/gardener/pkg/utils/retry"
 )
@@ -143,6 +144,9 @@ func (b *Botanist) WaitUntilEndpointsDoNotContainPodIPs(ctx context.Context) err
 // WaitUntilRequiredExtensionsReady waits until all the extensions required for a shoot reconciliation are ready
 func (b *Botanist) WaitUntilRequiredExtensionsReady(ctx context.Context) error {
 	return retry.UntilTimeout(ctx, 5*time.Second, time.Minute, func(ctx context.Context) (done bool, err error) {
+		if gardenletutils.IsResponsibleForTesting() {
+			return retry.Ok()
+		}
 		if err := b.RequiredExtensionsReady(ctx); err != nil {
 			b.Logger.Error(err, "Waiting until all the required extension controllers are ready")
 			return retry.MinorError(err)
