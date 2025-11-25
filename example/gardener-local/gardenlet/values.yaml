@@ -2,8 +2,8 @@ replicaCount: 1
 config:
   gardenClientConnection:
     kubeconfigSecret:
-      name: gardenlet-kubeconfig
-      namespace: garden
+      name: gardenlet-kubeconfig-seed-1
+      namespace: default
     bootstrapKubeconfig:
       name: gardenlet-kubeconfig-bootstrap
       namespace: garden
@@ -18,7 +18,7 @@ config:
             # This works from within the kind cluster itself, from within ManagedSeeds, and from within additional kind clusters.
             # Note that this doesn't work in IPv6 single-stack kind clusters,
             # ref https://github.com/kubernetes-sigs/kind/issues/3114
-            server: https://garden.local.gardener.cloud:6443
+            server: https://api.virtual-garden.local.gardener.cloud
           name: default
         contexts:
         - context:
@@ -55,18 +55,11 @@ config:
     apiVersion: core.gardener.cloud/v1beta1
     kind: Seed
     metadata:
-      name: local
+      name: seed-1
       labels:
         base: kind
     spec:
-      backup:
-        provider: local
-        region: local
-        credentialsRef:
-          apiVersion: v1
-          kind: Secret
-          name: backup-local
-          namespace: garden
+      backup: null
       provider:
         type: local
         region: local

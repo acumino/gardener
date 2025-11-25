@@ -4,9 +4,9 @@ serviceAccountName: gardenlet
 invalidateServiceAccountToken: true
 image:
 # ref: europe-docker.pkg.dev/gardener-project/releases/gardener/gardenlet:latest
-  repository: europe-docker.pkg.dev/gardener-project/releases/gardener/gardenlet
-  tag: latest
-  pullPolicy: IfNotPresent
+  repository: acuminous/gardener/gardenlet
+  tag: v1.133.0-dev-a5aefd75578e053c0ad8a0b38ce710b55e220847-dirty
+  pullPolicy: Never
 resources:
   requests:
     cpu: 100m
@@ -147,7 +147,7 @@ config:
     retryPeriod: 2s
     resourceLock: leases
     resourceName: gardenlet-leader-election
-    resourceNamespace: garden
+    resourceNamespace: default
   logLevel: info
   logFormat: json
   server:

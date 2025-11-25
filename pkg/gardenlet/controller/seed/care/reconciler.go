@@ -71,6 +71,8 @@ func (r *Reconciler) Reconcile(reconcileCtx context.Context, req reconcile.Reque
 		seedConditions,
 	)
 
+	seedConditions = NewSeedConditions(r.Clock, seed.Status)
+
 	// Update Seed status conditions if necessary
 	if v1beta1helper.ConditionsNeedUpdate(seedConditions.ConvertToSlice(), updatedConditions) {
 		// Rebuild seed conditions to ensure that only the conditions with the
