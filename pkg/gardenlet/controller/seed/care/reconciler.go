@@ -22,6 +22,7 @@ import (
 	v1beta1helper "github.com/gardener/gardener/pkg/apis/core/v1beta1/helper"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	gardenletconfigv1alpha1 "github.com/gardener/gardener/pkg/gardenlet/apis/config/v1alpha1"
+	gardenletutils "github.com/gardener/gardener/pkg/utils/gardener/gardenlet"
 	kubernetesutils "github.com/gardener/gardener/pkg/utils/kubernetes"
 )
 
@@ -71,13 +72,20 @@ func (r *Reconciler) Reconcile(reconcileCtx context.Context, req reconcile.Reque
 		seedConditions,
 	)
 
-	seedConditions = NewSeedConditions(r.Clock, seed.Status)
-
 	// Update Seed status conditions if necessary
-	if v1beta1helper.ConditionsNeedUpdate(seedConditions.ConvertToSlice(), updatedConditions) {
+	if v1beta1helper.ConditionsNeedUpdate(seedConditions.ConvertToSlice(), updatedConditions) || gardenletutils.IsResponsibleForTesting() {
 		// Rebuild seed conditions to ensure that only the conditions with the
 		// correct types will be updated, and any other conditions will remain intact
 		conditions := v1beta1helper.BuildConditions(seed.Status.Conditions, updatedConditions, seedConditions.ConditionTypes())
+
+		// set all the condtion to true in testing mode
+		if gardenletutils.IsResponsibleForTesting() {
+			for i := range conditions {
+				// set all the condition to true in testing mode
+				conditions[i].Status = gardencorev1beta1.ConditionTrue
+				conditions[i].LastUpdateTime = metav1.Now()
+			}
+		}
 
 		log.Info("Updating seed status conditions")
 		patch := client.StrategicMergeFrom(seed.DeepCopy())
