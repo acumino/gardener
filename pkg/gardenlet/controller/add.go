@@ -30,7 +30,9 @@ import (
 	"github.com/gardener/gardener/pkg/gardenlet/controller/networkpolicy"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/seed"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot"
+	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/care"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/lease"
+	shootreconciler "github.com/gardener/gardener/pkg/gardenlet/controller/shoot/shoot"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/state"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/tokenrequestor/workloadidentity"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/vpaevictionrequirements"
@@ -86,6 +88,28 @@ func AddToManager(
 
 		if err := seed.AddToManager(mgr, gardenCluster, seedCluster, seedClientSet, *cfg, identity, healthManager); err != nil {
 			return fmt.Errorf("failed adding Seed controller: %w", err)
+		}
+
+		if err := (&shootreconciler.Reconciler{
+			SeedClientSet:               seedClientSet,
+			ShootClientMap:              shootClientMap,
+			Config:                      *cfg,
+			Identity:                    identity,
+			GardenClusterIdentity:       gardenClusterIdentity,
+			ShootStateControllerEnabled: false,
+		}).AddToManager(mgr, gardenCluster); err != nil {
+			return fmt.Errorf("failed adding shoot main reconciler: %w", err)
+		}
+
+		if err := (&care.Reconciler{
+			SeedClientSet:         seedClientSet,
+			ShootClientMap:        shootClientMap,
+			Config:                *cfg,
+			Identity:              identity,
+			GardenClusterIdentity: gardenClusterIdentity,
+			SeedName:              cfg.SeedConfig.Name,
+		}).AddToManager(mgr, gardenCluster); err != nil {
+			return fmt.Errorf("failed adding shoot care reconciler: %w", err)
 		}
 
 		return nil
