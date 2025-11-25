@@ -1,5 +1,9 @@
 hollow: true
 replicaCount: 1
+resources:
+  requests:
+    cpu: 10m
+    memory: 10Mi
 image:
     repository: acuminous/gardener/gardenlet
     tag: v1.133.0-dev-c2e26ac56beae05a8b13e3b4351f80df25d1e72b-dirty

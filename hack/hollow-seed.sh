@@ -62,6 +62,8 @@ yq eval '.serviceAccountName = "gardenlet-'$seed_name'"' -i $temp_values_file
 yq eval '.config.leaderElection.resourceName = "gardenlet-'$seed_name'"' -i $temp_values_file
 # kubeconfig secret
 yq eval '.config.gardenClientConnection.kubeconfigSecret.name = "gardenlet-kubeconfig-'$seed_name'"' -i $temp_values_file
+# bootstrap kubeconfig secret
+yq eval '.config.gardenClientConnection.bootstrapKubeconfig.name = "gardenlet-kubeconfig-bootstrap-'$seed_name'"' -i $temp_values_file
 # bootstrap token id sed magic. Please don't touch
 sed -i "s/TOKEN/$token_id/g" $temp_values_file
 
