@@ -68,4 +68,4 @@ yq eval '.config.gardenClientConnection.bootstrapKubeconfig.name = "gardenlet-ku
 sed -i "s/TOKEN/$token_id/g" $temp_values_file
 
 echo "Install chart"
-helm upgrade --install gardenlet-$seed_name $root_dir/charts/gardener/gardenlet --values $temp_values_file --take-ownership
+helm upgrade --install gardenlet-$seed_name $root_dir/charts/gardener/gardenlet --values $temp_values_file --take-ownership --namespace default
