@@ -16,6 +16,7 @@ import (
 
 	v1beta1helper "github.com/gardener/gardener/pkg/api/core/v1beta1/helper"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	botanistpkg "github.com/gardener/gardener/pkg/gardenlet/operation/botanist"
 )
 
@@ -183,13 +184,85 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		}
 		return true, nil
 
+	case gardencorev1beta1.ShootLiveMigrationMigrateExtensionsNeededBeforeKubeAPIServer:
+		// The source migrates the extension resources that the destination kube-apiserver depends on and persists the
+		// ShootState so the destination can restore from it.
+		if err := botanist.DeployExtensionsBeforeKubeAPIServer(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationDestinationKubeAPIServerReady:
+		// The destination deploys its control plane against the (already replicated) etcd and waits for the
+		// kube-apiserver to become ready. The etcd data is already present via the joint cluster, so no data copy is
+		// required.
+		if err := botanist.DeployControlPlaneNamespace(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployGardenerResourceManager(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployExtensionsBeforeKubeAPIServer(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployKubeAPIServer(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.Shoot.Components.ControlPlane.KubeAPIServer.Wait(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployKubeControllerManager(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationMigrateDNSRecords:
+		// The destination points the API server DNS records at itself and deploys its SNI configuration. This is the
+		// near-zero-downtime cutover: from here on external traffic reaches the destination kube-apiserver.
+		if err := botanist.DeployKubeAPIServerSNI(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployOrDestroyExternalDNSRecord(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.DeployOrDestroyInternalDNSRecord(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationEtcdMigrationComplete:
+		// Verify the destination etcd is authoritative and healthy before the source is torn down.
+		if err := botanist.WaitUntilEtcdsReady(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationMigrationCompleted:
+		// Finalize the migration: set status.seedName to the destination and clear the live-migration state and the
+		// intent annotation so the shoot returns to normal reconciliation on the destination seed.
+		return true, r.finalizeLiveMigration(ctx, botanist.Shoot.GetInfo())
+
 	default:
-		// The remaining steps (extension migration, destination kube-apiserver, DNS cutover, etcd migration
-		// verification, completion) are not yet wired. Keep them Progressing so the migration does not spuriously
-		// advance past unimplemented work.
-		log.Info("Live migration step is not yet implemented; keeping it in progress", "step", step.conditionType)
+		// Should not happen: every step in liveMigrationSteps is handled above.
+		log.Info("Encountered an unknown live migration step", "step", step.conditionType)
 		return false, nil
 	}
+}
+
+// finalizeLiveMigration switches the shoot's status.seedName to the destination seed and clears the live-migration
+// state and intent annotation, returning the shoot to normal reconciliation on the destination seed.
+func (r *Reconciler) finalizeLiveMigration(ctx context.Context, shoot *gardencorev1beta1.Shoot) error {
+	patch := client.MergeFrom(shoot.DeepCopy())
+	delete(shoot.Annotations, v1beta1constants.AnnotationMigrationLiveMigrate)
+	if err := r.GardenClient.Patch(ctx, shoot, patch); err != nil {
+		return fmt.Errorf("failed to remove live migration annotation: %w", err)
+	}
+
+	statusPatch := client.StrategicMergeFrom(shoot.DeepCopy())
+	shoot.Status.SeedName = shoot.Spec.SeedName
+	shoot.Status.LiveMigration = nil
+	shoot.Status.MigrationStartTime = nil
+	return r.GardenClient.Status().Patch(ctx, shoot, statusPatch)
 }
 
 // ensureLiveMigrationConditionsInitialized makes sure status.liveMigration exists and holds an initialized condition
