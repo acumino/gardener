@@ -82,13 +82,25 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return reconcile.Result{}, fmt.Errorf("error retrieving object from store: %w", err)
 	}
 
+	// During a live control plane migration both the source and the destination gardenlet must act on the shoot: the
+	// source (status.seedName) prepares its control plane for peer join and cleans up, while the destination
+	// (spec.seedName) joins the etcd cluster and takes over. GetResponsibleSeedName only returns the source during
+	// migration, so the destination gardenlet must be allowed through explicitly.
+	liveMigrationRole := v1beta1helper.GetLiveMigrationRole(shoot, r.Config.SeedConfig.Name)
+
 	if responsibleSeedName := gardenerutils.GetResponsibleSeedName(shoot.Spec.SeedName, shoot.Status.SeedName); !v1beta1helper.IsShootSelfHosted(shoot.Spec.Provider.Workers) && responsibleSeedName != r.Config.SeedConfig.Name {
-		log.Info("Skipping because Shoot is not managed by this gardenlet", "seedName", responsibleSeedName)
-		return reconcile.Result{}, nil
+		if liveMigrationRole != v1beta1helper.LiveMigrationRoleDestination {
+			log.Info("Skipping because Shoot is not managed by this gardenlet", "seedName", responsibleSeedName)
+			return reconcile.Result{}, nil
+		}
 	}
 
 	if shoot.DeletionTimestamp != nil {
 		return r.deleteShoot(ctx, log, shoot)
+	}
+
+	if liveMigrationRole != v1beta1helper.LiveMigrationRoleNone {
+		return r.liveMigrateShoot(ctx, log, shoot, liveMigrationRole)
 	}
 
 	if v1beta1helper.ShouldPrepareShootForMigration(shoot) {
