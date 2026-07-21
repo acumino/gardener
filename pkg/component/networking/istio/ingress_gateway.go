@@ -17,6 +17,7 @@ import (
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/chartrenderer"
+	etcdconstants "github.com/gardener/gardener/pkg/component/etcd/etcd/constants"
 	kubeapiserverconstants "github.com/gardener/gardener/pkg/component/kubernetes/apiserver/constants"
 	"github.com/gardener/gardener/pkg/component/kubernetes/apiserverexposure"
 	vpnseedserver "github.com/gardener/gardener/pkg/component/networking/vpn/seedserver"
@@ -95,6 +96,20 @@ func (i *istiod) generateIstioIngressGatewayChart(ctx context.Context) (*chartre
 			},
 		}
 
+		// Collect all etcd peer ports exposed on the ingress gateway (for live control plane migration, GEP-39).
+		// The base peer port (2380) plus per-member ordinal ports (2381, 2382, ...) are all named "tls-etcd-peer*"
+		// in the Service spec. All of them must be opened in the from-world firewall annotation.
+		var etcdPeerPorts []int32
+		etcdClientPortEnabled := false
+		for _, port := range istioIngressGateway.Ports {
+			if strings.HasPrefix(port.Name, "tls-etcd-peer") {
+				etcdPeerPorts = append(etcdPeerPorts, port.Port)
+			}
+			if port.Port == etcdconstants.PortEtcdClient {
+				etcdClientPortEnabled = true
+			}
+		}
+
 		values := map[string]any{
 			"trustDomain":                        istioIngressGateway.TrustDomain,
 			"labels":                             istioIngressGateway.Labels,
@@ -114,6 +129,9 @@ func (i *istiod) generateIstioIngressGatewayChart(ctx context.Context) (*chartre
 			"terminateLoadBalancerProxyProtocol": istioIngressGateway.TerminateLoadBalancerProxyProtocol,
 			"terminateAPIServerTLS":              enableAPIServerTLSTermination,
 			"httpProxy":                          httpProxy,
+			"etcdPeerPorts":                      etcdPeerPorts,
+			"etcdClientPortEnabled":              etcdClientPortEnabled,
+			"etcdClientPort":                     etcdconstants.PortEtcdClient,
 			"enforceSpreadAcrossHosts":           istioIngressGateway.EnforceSpreadAcrossHosts,
 			"apiServerRequestHeaderUserName":     kubeapiserverconstants.RequestHeaderUserName,
 			"apiServerRequestHeaderGroup":        kubeapiserverconstants.RequestHeaderGroup,

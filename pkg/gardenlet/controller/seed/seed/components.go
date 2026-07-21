@@ -32,6 +32,7 @@ import (
 	"github.com/gardener/gardener/pkg/component/autoscaling/vpa"
 	"github.com/gardener/gardener/pkg/component/clusteridentity"
 	"github.com/gardener/gardener/pkg/component/etcd/etcd"
+	etcdconstants "github.com/gardener/gardener/pkg/component/etcd/etcd/constants"
 	"github.com/gardener/gardener/pkg/component/extensions"
 	extensioncrds "github.com/gardener/gardener/pkg/component/extensions/crds"
 	"github.com/gardener/gardener/pkg/component/extensions/extension"
@@ -367,6 +368,19 @@ func (r *Reconciler) newIstio(ctx context.Context, seed *seedpkg.Seed, seedIsGar
 	if httpProxyLegacyPortEnabled {
 		servicePorts = append(servicePorts, corev1.ServicePort{Name: "tls-tunnel", Port: vpnseedserver.GatewayPort, TargetPort: intstr.FromInt32(vpnseedserver.GatewayPort)})
 	}
+
+	// When live control plane migration is enabled, expose the etcd peer and client ports on the ingress gateway so
+	// that etcd members of a shoot can form a joint cluster spanning source and destination seeds (GEP-39).
+	// Each member ordinal i uses external port PortEtcdPeer+i so that etcd's URLStringsEqual (which falls back to
+	// DNS resolution) sees a distinct IP:port per member and cannot conflate members sharing the same ingress IP.
+	// We pre-open ports for up to maxEtcdHAMembers members; the first member (ordinal 0) reuses PortEtcdPeer.
+	const maxEtcdHAMembers = 3
+	servicePorts = append(servicePorts, corev1.ServicePort{Name: "tls-etcd-peer", Port: etcdconstants.PortEtcdPeer, TargetPort: intstr.FromInt32(etcdconstants.PortEtcdPeer)})
+	for i := int32(1); i < maxEtcdHAMembers; i++ {
+		port := etcdconstants.PortEtcdPeer + i
+		servicePorts = append(servicePorts, corev1.ServicePort{Name: fmt.Sprintf("tls-etcd-peer-%d", i), Port: port, TargetPort: intstr.FromInt32(port)})
+	}
+	servicePorts = append(servicePorts, corev1.ServicePort{Name: "tls-etcd-client", Port: etcdconstants.PortEtcdClient, TargetPort: intstr.FromInt32(etcdconstants.PortEtcdClient)})
 
 	istioDeployer, err := sharedcomponent.NewIstio(
 		ctx,
