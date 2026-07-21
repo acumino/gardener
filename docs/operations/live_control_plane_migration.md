@@ -1,7 +1,7 @@
 # Live Control Plane Migration
 
 > [!IMPORTANT]
-> Live control plane migration ([GEP-39](https://github.com/gardener/enhancements/tree/main/geps/0039-live-control-plane-migration)) is a work in progress. Only the trigger and its prerequisites are wired up today; the gardenlet-side flow, retry, and abort semantics will be added in follow-up work. This document is intentionally minimal and will be enhanced along the way.
+> Live control plane migration ([GEP-39](https://github.com/gardener/enhancements/tree/main/geps/0039-live-control-plane-migration)) is a work in progress. The trigger, its prerequisites, the gardenlet-side dispatch and progress tracking are wired up today. The concrete migration steps that form the temporary 6-member etcd cluster additionally depend on the etcd-druid `bootstrapWithExistingCluster` capability (see [gardener/etcd-druid#1237](https://github.com/gardener/etcd-druid/issues/1237)) and are added in follow-up work. This document is enhanced along the way.
 
 Live control plane migration moves a highly-available `Shoot` control plane from a *Source Seed* to a *Destination Seed* without the API-server downtime of [control plane migration](./control_plane_migration.md).
 
@@ -46,3 +46,23 @@ Both of the following are required on the `Shoot` to trigger a live control plan
 
     kubectl get --raw /apis/core.gardener.cloud/v1beta1/namespaces/${NAMESPACE}/shoots/${SHOOT_NAME} | jq -c '.spec.seedName = "'${DEST_SEED_NAME}'"' | kubectl replace --raw /apis/core.gardener.cloud/v1beta1/namespaces/${NAMESPACE}/shoots/${SHOOT_NAME}/binding -f - | jq -r '.spec.seedName'
     ```
+
+Once triggered, both the gardenlet on the `Source Seed` and the gardenlet on the `Destination Seed` act on the `Shoot`. Each one performs only the migration steps it owns and waits for the peer gardenlet to complete the steps it depends on.
+
+## Tracking Progress
+
+The progress of a live control plane migration is tracked via conditions under `.status.liveMigration.conditions`. Each condition corresponds to one migration step and is owned by either the source or the destination gardenlet:
+
+| Condition | Owner |
+| --- | --- |
+| `SourceEtcdPreparedForPeerJoin` | Source |
+| `DestinationEtcdPeersJoined` | Destination |
+| `MigrateExtensionsNeededBeforeKubeAPIServer` | Source |
+| `DestinationKubeAPIServerReady` | Destination |
+| `MigrateDNSRecords` | Destination |
+| `EtcdMigrationComplete` | Destination |
+| `SourceSeedCleanup` | Source |
+| `MigrationCompleted` | Destination |
+
+The two gardenlets coordinate exclusively through these conditions — the owning gardenlet drives its step to completion and flips the condition to `True`, while the peer gardenlet waits until it observes that condition.
+
