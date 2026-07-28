@@ -214,6 +214,18 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		if err := botanist.DeployKubeControllerManager(ctx); err != nil {
 			return false, err
 		}
+		if err := botanist.DeployVPNServer(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy destination VPN server: %w", err)
+		}
+		if err := botanist.DeployTemporaryVPNExposure(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy temporary VPN exposure: %w", err)
+		}
+		if err := botanist.DeployLiveMigrationVPNDNSRecord(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy live migration VPN DNS record: %w", err)
+		}
+		if err := botanist.DeployTemporaryVPNShoot(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy temporary VPN shoot client: %w", err)
+		}
 		return true, nil
 
 	case gardencorev1beta1.ShootLiveMigrationMigrateDNSRecords:
@@ -240,6 +252,20 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 	case gardencorev1beta1.ShootLiveMigrationMigrationCompleted:
 		// Finalize the migration: set status.seedName to the destination and clear the live-migration state and the
 		// intent annotation so the shoot returns to normal reconciliation on the destination seed.
+		// Deploy the regular vpn-shoot first so the permanent tunnel to the destination is established before the
+		// temporary one is torn down, ensuring uninterrupted connectivity.
+		if err := botanist.DeployVPNShoot(ctx); err != nil {
+			return false, fmt.Errorf("failed to redeploy VPN shoot to destination: %w", err)
+		}
+		if err := botanist.DestroyTemporaryVPNShoot(ctx); err != nil {
+			return false, fmt.Errorf("failed to destroy temporary VPN shoot client: %w", err)
+		}
+		if err := botanist.DestroyLiveMigrationVPNDNSRecord(ctx); err != nil {
+			return false, fmt.Errorf("failed to destroy live migration VPN DNS record: %w", err)
+		}
+		if err := botanist.DestroyTemporaryVPNExposure(ctx); err != nil {
+			return false, fmt.Errorf("failed to destroy temporary VPN Istio exposure: %w", err)
+		}
 		return true, r.finalizeLiveMigration(ctx, botanist.Shoot.GetInfo())
 
 	default:
