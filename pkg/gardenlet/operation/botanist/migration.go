@@ -18,7 +18,15 @@ import (
 	"github.com/gardener/gardener/pkg/component"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	"github.com/gardener/gardener/pkg/utils/flow"
+	shootstate "github.com/gardener/gardener/pkg/utils/gardener/shootstate"
 )
+
+// PersistShootState writes all secrets from the seed namespace into the garden-cluster ShootState so that
+// a destination gardenlet can restore them during live migration.
+func (b *Botanist) PersistShootState(ctx context.Context) error {
+	return shootstate.Deploy(ctx, b.Clock, b.GardenClient, b.SeedClientSet.Client(),
+		b.Shoot.GetInfo(), b.Shoot.ControlPlaneNamespace, false)
+}
 
 // MigrateExtensionResourcesInParallel migrates extension CRs.
 // CRs with kind "Extension" are handled separately and are not migrated by this function.

@@ -45,6 +45,11 @@ func (b *Botanist) InitializeSecretsManagement(ctx context.Context) error {
 		if err := b.restoreSecretsFromShootState(ctx); err != nil {
 			return err
 		}
+	} else if v1beta1helper.GetLiveMigrationRole(b.Shoot.GetInfo(), b.Seed.GetInfo().Name) ==
+		v1beta1helper.LiveMigrationRoleDestination {
+		if err := b.restoreSecretsFromShootStateForLiveMigration(ctx); err != nil {
+			return err
+		}
 	}
 
 	taskFns := []flow.TaskFn{
@@ -119,6 +124,35 @@ func (b *Botanist) restoreSecretsFromShootState(ctx context.Context) error {
 			}
 
 			return restoreSecretFromPersistedData(ctx, b.SeedClientSet.Client(), objectMeta, entry.Data.Raw)
+		})
+	}
+
+	return flow.Parallel(fns...)(ctx)
+}
+
+func (b *Botanist) restoreSecretsFromShootStateForLiveMigration(ctx context.Context) error {
+	shootState := &gardencorev1beta1.ShootState{}
+	if err := b.GardenClient.Get(ctx, client.ObjectKey{
+		Name:      b.Shoot.GetInfo().Name,
+		Namespace: b.Shoot.GetInfo().Namespace,
+	}, shootState); err != nil {
+		return fmt.Errorf("failed to fetch ShootState for live migration secret restoration: %w", err)
+	}
+
+	var fns []flow.TaskFn
+	for _, v := range shootState.Spec.Gardener {
+		entry := v
+
+		if entry.Type != v1beta1constants.DataTypeSecret {
+			continue
+		}
+
+		fns = append(fns, func(ctx context.Context) error {
+			return restoreSecretFromPersistedData(ctx, b.SeedClientSet.Client(), metav1.ObjectMeta{
+				Name:      entry.Name,
+				Namespace: b.Shoot.ControlPlaneNamespace,
+				Labels:    entry.Labels,
+			}, entry.Data.Raw)
 		})
 	}
 

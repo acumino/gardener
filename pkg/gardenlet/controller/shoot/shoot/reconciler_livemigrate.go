@@ -137,7 +137,6 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		// redeploys etcd so it advertises the destination members as additional peers.
 		if err := botanist.PersistShootState(ctx); err != nil {
 			return false, fmt.Errorf("failed to persist shoot state: %w", err)
-
 		}
 		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
 			return false, err
@@ -160,7 +159,6 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		// configured to join the existing source cluster. It waits until all members (source + destination) are ready.
 		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
 			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
-
 		}
 		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
 			return false, err
