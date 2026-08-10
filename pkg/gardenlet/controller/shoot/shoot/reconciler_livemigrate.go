@@ -67,6 +67,10 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 		return reconcile.Result{}, fmt.Errorf("failed to initialize live migration conditions: %w", err)
 	}
 
+	if err := r.updateShootStatusOperationStart(ctx, shoot, shoot.Status.TechnicalID, gardencorev1beta1.LastOperationTypeLiveMigrate); err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to update shoot status to live migrate: %w", err)
+	}
+
 	// Walk the ordered steps. For each step, ensure all preceding steps are done. If the current step is owned by this
 	// gardenlet, execute it; otherwise requeue and wait for the owning (peer) gardenlet to complete it.
 	for _, step := range liveMigrationSteps {
@@ -105,7 +109,7 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 	}
 
 	log.Info("Live control plane migration completed")
-	return reconcile.Result{}, nil
+	return reconcile.Result{}, r.patchShootStatusOperationSuccess(ctx, shoot, gardencorev1beta1.LastOperationTypeLiveMigrate)
 }
 
 // setLiveMigrationStepCondition flips the step's tracking condition to True when the step reported completion, or keeps

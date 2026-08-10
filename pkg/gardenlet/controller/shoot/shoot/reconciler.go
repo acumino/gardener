@@ -578,6 +578,10 @@ func (r *Reconciler) updateShootStatusOperationStart(
 		description = "Preparation of Shoot cluster for migration initialized."
 		operationTypeSwitched = false
 
+	case gardencorev1beta1.LastOperationTypeLiveMigrate:
+		description = "Live migration of Shoot control plane initialized."
+		operationTypeSwitched = false
+
 	case gardencorev1beta1.LastOperationTypeDelete:
 		description = "Deletion of Shoot cluster in progress."
 		operationTypeSwitched = shoot.Status.LastOperation != nil && shoot.Status.LastOperation.Type != gardencorev1beta1.LastOperationTypeDelete
@@ -596,6 +600,7 @@ func (r *Reconciler) updateShootStatusOperationStart(
 
 	if !equality.Semantic.DeepEqual(shoot.Status.SeedName, shoot.Spec.SeedName) &&
 		operationType != gardencorev1beta1.LastOperationTypeMigrate &&
+		operationType != gardencorev1beta1.LastOperationTypeLiveMigrate &&
 		operationType != gardencorev1beta1.LastOperationTypeDelete {
 		shoot.Status.SeedName = shoot.Spec.SeedName
 	}
@@ -813,6 +818,10 @@ func (r *Reconciler) patchShootStatusOperationSuccess(
 
 	case gardencorev1beta1.LastOperationTypeMigrate:
 		description = "Shoot cluster has been successfully prepared for migration."
+		setConditionsToProgressing = false
+
+	case gardencorev1beta1.LastOperationTypeLiveMigrate:
+		description = "Shoot control plane has been successfully live-migrated."
 		setConditionsToProgressing = false
 
 	case gardencorev1beta1.LastOperationTypeRestore:
