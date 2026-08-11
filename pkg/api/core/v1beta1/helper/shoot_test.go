@@ -286,6 +286,15 @@ var _ = Describe("Helper", func() {
 		})
 	})
 
+	DescribeTable("#LiveMigrationTemporaryVPNDNSName",
+		func(internalClusterDomain, expected string) {
+			Expect(LiveMigrationTemporaryVPNDNSName(internalClusterDomain)).To(Equal(expected))
+		},
+		Entry("prepends vpn-tmp.", "foo.bar.internal.example.com", "vpn-tmp.foo.bar.internal.example.com"),
+		Entry("works with short domain", "example.com", "vpn-tmp.example.com"),
+	)
+
+
 	var profile = gardencorev1beta1.SchedulingProfileBinPacking
 
 	DescribeTable("#ShootSchedulingProfile",
