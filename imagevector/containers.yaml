@@ -73,8 +73,8 @@ images:
 
   - name: etcd-druid
     sourceRepository: github.com/gardener/etcd-druid
-    repository: europe-docker.pkg.dev/gardener-project/releases/gardener/etcd-druid
-    tag: "v0.38.1"
+    repository: registry.local.gardener.cloud:5001/etcd-druid
+    tag: "live-migration-fix"
   - name: etcd
     sourceRepository: github.com/etcd-io/etcd
     repository: gcr.io/etcd-development/etcd
