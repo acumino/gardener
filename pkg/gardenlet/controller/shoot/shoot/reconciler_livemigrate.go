@@ -154,6 +154,9 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 	case gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersExposed:
 		// The destination restores secrets from ShootState (including ca-etcd-peer) so it shares the
 		// source CA, then exposes its own etcd peer endpoints via its ingress gateway.
+		if err := botanist.DeployControlPlaneNamespace(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy control plane namespace: %w", err)
+		}
 		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
 			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
 		}
