@@ -200,13 +200,6 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		}
 		return true, nil
 
-	case gardencorev1beta1.ShootLiveMigrationSourceSeedCleanup:
-		// Remove the cross-seed peer exposure of the source seed as part of the source cleanup.
-		if err := botanist.DestroyEtcdPeerExposure(ctx); err != nil {
-			return false, err
-		}
-		return true, nil
-
 	case gardencorev1beta1.ShootLiveMigrationMigrateExtensionsNeededBeforeKubeAPIServer:
 		// The source migrates the extension resources that the destination kube-apiserver depends on and persists the
 		// ShootState so the destination can restore from it.
@@ -268,6 +261,13 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 	case gardencorev1beta1.ShootLiveMigrationEtcdMigrationComplete:
 		// Verify the destination etcd is authoritative and healthy before the source is torn down.
 		if err := botanist.WaitUntilEtcdsReady(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationSourceSeedCleanup:
+		// Remove the cross-seed peer exposure of the source seed as part of the source cleanup.
+		if err := botanist.DestroyEtcdPeerExposure(ctx); err != nil {
 			return false, err
 		}
 		return true, nil
