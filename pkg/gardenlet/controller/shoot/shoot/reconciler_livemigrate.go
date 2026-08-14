@@ -186,6 +186,12 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
 			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
 		}
+		if err := botanist.DeployBackupEntry(ctx); err != nil {
+			return false, fmt.Errorf("failed to deploy backup entry: %w", err)
+		}
+		if err := botanist.Shoot.Components.BackupEntry.Wait(ctx); err != nil {
+			return false, fmt.Errorf("failed to wait for backup entry: %w", err)
+		}
 		if err := botanist.DeployEtcd(ctx); err != nil {
 			return false, err
 		}
