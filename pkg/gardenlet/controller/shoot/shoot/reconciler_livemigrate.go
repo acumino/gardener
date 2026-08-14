@@ -90,9 +90,10 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 		}
 
 		log.Info("Executing live migration step", "step", step.conditionType)
-		done, err := r.runLiveMigrationStep(ctx, log, botanist, step)
-		if err != nil {
-			return reconcile.Result{}, fmt.Errorf("failed to execute live migration step %q: %w", step.conditionType, err)
+		done, stepErr := r.runLiveMigrationStep(ctx, log, botanist, step)
+		if stepErr != nil {
+			_ = r.setLiveMigrationStepConditionError(ctx, shoot, step, stepErr)
+			return reconcile.Result{}, fmt.Errorf("failed to execute live migration step %q: %w", step.conditionType, stepErr)
 		}
 
 		if err := r.setLiveMigrationStepCondition(ctx, shoot, step, done); err != nil {
@@ -117,6 +118,14 @@ func (r *Reconciler) setLiveMigrationStepCondition(ctx context.Context, shoot *g
 	} else {
 		condition = v1beta1helper.UpdatedConditionWithClock(r.Clock, condition, gardencorev1beta1.ConditionProgressing, "StepInProgress", "The live migration step is in progress.")
 	}
+	return r.patchLiveMigrationConditions(ctx, shoot, condition)
+}
+
+// setLiveMigrationStepConditionError patches the step's tracking condition to False with the given error message so
+// that operators can observe the failure directly on the condition.
+func (r *Reconciler) setLiveMigrationStepConditionError(ctx context.Context, shoot *gardencorev1beta1.Shoot, step liveMigrationStep, err error) error {
+	condition := v1beta1helper.GetOrInitConditionWithClock(r.Clock, v1beta1helper.GetLiveMigrationConditions(shoot), step.conditionType)
+	condition = v1beta1helper.UpdatedConditionWithClock(r.Clock, condition, gardencorev1beta1.ConditionFalse, "StepFailed", err.Error())
 	return r.patchLiveMigrationConditions(ctx, shoot, condition)
 }
 
