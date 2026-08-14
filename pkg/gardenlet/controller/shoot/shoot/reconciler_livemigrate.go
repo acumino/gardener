@@ -35,13 +35,9 @@ type liveMigrationStep struct {
 // liveMigrationSteps is the ordered list of steps a live control plane migration progresses through. The order encodes
 // the strict dependency chain: a step may only start once all preceding steps report their condition as True. The
 // mapping of steps to owners and condition types follows GEP-39.
-//
-// TODO(@acumino): The step bodies (etcd peer join, extension migration, kube-apiserver deployment, DNS cutover, source
-//
-//	cleanup) are implemented in later phases. The formation of the 6-member etcd cluster (steps
-//	SourceEtcdPreparedForPeerJoin and DestinationEtcdPeersJoined) additionally depends on the etcd-druid
-//	`bootstrapWithExistingCluster` field, which is not yet available (see gardener/etcd-druid#1237).
 var liveMigrationSteps = []liveMigrationStep{
+	{gardencorev1beta1.ShootLiveMigrationSourceEtcdPeersExposed, v1beta1helper.LiveMigrationRoleSource},
+	{gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersExposed, v1beta1helper.LiveMigrationRoleDestination},
 	{gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin, v1beta1helper.LiveMigrationRoleSource},
 	{gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined, v1beta1helper.LiveMigrationRoleDestination},
 	{gardencorev1beta1.ShootLiveMigrationMigrateExtensionsNeededBeforeKubeAPIServer, v1beta1helper.LiveMigrationRoleSource},
@@ -135,20 +131,31 @@ func (r *Reconciler) setLiveMigrationStepCondition(ctx context.Context, shoot *g
 //	and endpoint-publishing steps are implemented below.
 func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, botanist *botanistpkg.Botanist, step liveMigrationStep) (bool, error) {
 	switch step.conditionType {
-	case gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin:
+	case gardencorev1beta1.ShootLiveMigrationSourceEtcdPeersExposed:
 		// The source persists its ShootState (including ca-etcd-peer) so the destination can restore it,
-		// exposes its etcd peer ports across seeds, and (once the destination has exposed its peers)
-		// redeploys etcd so it advertises the destination members as additional peers.
+		// then exposes its etcd peer endpoints via the seed's shared Istio ingress gateway.
 		if err := botanist.PersistShootState(ctx); err != nil {
 			return false, fmt.Errorf("failed to persist shoot state: %w", err)
 		}
 		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
 			return false, err
 		}
-		if v1beta1helper.GetLiveMigrationCondition(botanist.Shoot.GetInfo(), gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined) == nil {
-			log.Info("Waiting for the destination gardenlet to expose its etcd peers before preparing the source etcd for peer join")
-			return false, nil
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersExposed:
+		// The destination restores secrets from ShootState (including ca-etcd-peer) so it shares the
+		// source CA, then exposes its own etcd peer endpoints via its ingress gateway.
+		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
+			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
 		}
+		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin:
+		// Both seeds have now exposed their etcd peer endpoints. The source redeploys etcd advertising
+		// the destination members as additional peers and waits until its members are healthy.
 		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
 			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
 		}
@@ -161,18 +168,11 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 		return true, nil
 
 	case gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined:
-		// The destination restores secrets from ShootState (including ca-etcd-peer) so it shares the source CA,
-		// exposes its etcd peer ports across seeds, and (once the source is ready) deploys etcd
-		// configured to join the existing source cluster. It waits until all members (source + destination) are ready.
+		// Source etcd is running and advertising destination peer URLs. The destination deploys etcd
+		// configured to bootstrap by joining the existing source cluster, then waits until all members
+		// (source + destination) are healthy.
 		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
 			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
-		}
-		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
-			return false, err
-		}
-		if !v1beta1helper.IsLiveMigrationConditionTrue(botanist.Shoot.GetInfo(), gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin) {
-			log.Info("Waiting for the source gardenlet to prepare its etcd for peer join before joining the source cluster")
-			return false, nil
 		}
 		if err := botanist.DeployEtcd(ctx); err != nil {
 			return false, err

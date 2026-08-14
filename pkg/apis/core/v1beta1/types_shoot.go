@@ -2206,8 +2206,14 @@ const (
 	// ShootPreservedFailedMachinesAbsent is a constant for a condition type indicating that the Shoot cluster no preserved failed machines.
 	ShootPreservedFailedMachinesAbsent ConditionType = "PreservedFailedMachinesAbsent"
 
+	// ShootLiveMigrationSourceEtcdPeersExposed indicates that the source seed has persisted the
+	// ShootState and exposed the etcd peer endpoints via its ingress gateway.
+	ShootLiveMigrationSourceEtcdPeersExposed ConditionType = "SourceEtcdPeersExposed"
+	// ShootLiveMigrationDestinationEtcdPeersExposed indicates that the destination seed has
+	// restored the shared CA secrets and exposed its etcd peer endpoints via its ingress gateway.
+	ShootLiveMigrationDestinationEtcdPeersExposed ConditionType = "DestinationEtcdPeersExposed"
 	// ShootLiveMigrationSourceEtcdPreparedForPeerJoin indicates that the source etcd cluster
-	// is prepared for destination peers to join.
+	// has been redeployed advertising the destination members as additional peers.
 	ShootLiveMigrationSourceEtcdPreparedForPeerJoin ConditionType = "SourceEtcdPreparedForPeerJoin"
 	// ShootLiveMigrationDestinationEtcdPeersJoined indicates that destination etcd members
 	// have successfully joined the source etcd cluster.
