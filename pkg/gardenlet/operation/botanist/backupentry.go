@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
@@ -99,4 +101,31 @@ func (b *Botanist) DestroySourceBackupEntry(ctx context.Context) error {
 	}
 
 	return b.Shoot.Components.SourceBackupEntry.Destroy(ctx)
+}
+
+// DeployLiveMigrationBackupEntry deploys the backup entry for the destination seed during a live control plane
+// migration. Unlike a normal control plane migration, live migration does not copy etcd backups — data is
+// replicated via the joint etcd cluster. To avoid triggering the source→destination backup-copy path (which
+// fires when status.seedName != spec.seedName), this function clears the stale status.seedName first so the
+// gardenlet reconciles the entry as a fresh creation on the destination.
+func (b *Botanist) DeployLiveMigrationBackupEntry(ctx context.Context) error {
+	be := &gardencorev1beta1.BackupEntry{}
+	if err := b.GardenClient.Get(ctx, client.ObjectKey{
+		Namespace: b.Shoot.GetInfo().Namespace,
+		Name:      b.Shoot.BackupEntryName,
+	}, be); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get backup entry: %w", err)
+		}
+		// Not found — will be created fresh by Deploy().
+	} else if be.Status.SeedName != nil && *be.Status.SeedName != ptr.Deref(b.Shoot.GetInfo().Spec.SeedName, "") {
+		// The existing entry was reconciled on the source seed. Clear status.seedName so it is treated as a
+		// fresh creation on the destination, bypassing the source→destination backup-copy migration path.
+		patch := client.MergeFrom(be.DeepCopy())
+		be.Status.SeedName = nil
+		if err := b.GardenClient.Status().Patch(ctx, be, patch); err != nil {
+			return fmt.Errorf("failed to clear backup entry status seed name: %w", err)
+		}
+	}
+	return b.Shoot.Components.BackupEntry.Deploy(ctx)
 }
