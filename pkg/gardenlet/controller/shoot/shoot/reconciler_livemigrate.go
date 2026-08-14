@@ -149,6 +149,9 @@ func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, 
 			log.Info("Waiting for the destination gardenlet to expose its etcd peers before preparing the source etcd for peer join")
 			return false, nil
 		}
+		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
+			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
+		}
 		if err := botanist.DeployEtcd(ctx); err != nil {
 			return false, err
 		}
