@@ -16,6 +16,7 @@ import (
 
 	v1beta1helper "github.com/gardener/gardener/pkg/api/core/v1beta1/helper"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	botanistpkg "github.com/gardener/gardener/pkg/gardenlet/operation/botanist"
 )
 
 // liveMigrationStep describes a single step of a live control plane migration. Each step is owned by exactly one of the
@@ -77,13 +78,28 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 			return reconcile.Result{RequeueAfter: liveMigrationRequeueAfter}, nil
 		}
 
+		// Build the operation and botanist lazily, only when this gardenlet actually has a step to execute.
+		o, result, err := r.prepareOperation(ctx, log, shoot)
+		if err != nil || o == nil {
+			return result, err
+		}
+		botanist, err := botanistpkg.New(ctx, o)
+		if err != nil {
+			return reconcile.Result{}, fmt.Errorf("failed to create botanist for live migration: %w", err)
+		}
+
 		log.Info("Executing live migration step", "step", step.conditionType)
-		if err := r.runLiveMigrationStep(ctx, log, shoot, step); err != nil {
+		done, err := r.runLiveMigrationStep(ctx, log, botanist, step)
+		if err != nil {
 			return reconcile.Result{}, fmt.Errorf("failed to execute live migration step %q: %w", step.conditionType, err)
 		}
 
-		// The step has been driven forward; requeue so the next reconciliation re-evaluates the (possibly newly
-		// satisfied) condition and either proceeds to the next step or hands off to the peer gardenlet.
+		if err := r.setLiveMigrationStepCondition(ctx, shoot, step, done); err != nil {
+			return reconcile.Result{}, err
+		}
+
+		// Requeue so the next reconciliation re-evaluates the (possibly newly satisfied) condition and either proceeds
+		// to the next step or hands off to the peer gardenlet.
 		return reconcile.Result{RequeueAfter: liveMigrationRequeueAfter}, nil
 	}
 
@@ -91,26 +107,89 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 	return reconcile.Result{}, nil
 }
 
-// runLiveMigrationStep executes a single, this-gardenlet-owned live migration step and updates its tracking condition.
-//
-// TODO(@acumino): Wire the concrete step bodies. This currently only manages the condition scaffolding so that the
-//
-//	cross-seed handshake and step ordering can be exercised behind the alpha feature gate. See the phased plan:
-//	  - SourceEtcdPreparedForPeerJoin / DestinationEtcdPeersJoined: 6-member etcd formation (Phase 1 peer exposure +
-//	    Phase 2 AdditionalAdvertisePeerURLs/SkipClientSANVerification/bootstrapWithExistingCluster wiring).
-//	  - MigrateExtensionsNeededBeforeKubeAPIServer: reuse the migrate-extension tasks from runMigrateShootFlow.
-//	  - DestinationKubeAPIServerReady: deploy the destination control plane against the (already replicated) etcd.
-//	  - MigrateDNSRecords: DNS/Istio cutover to the destination kube-apiserver (the near-zero-downtime hinge).
-//	  - EtcdMigrationComplete: verify the destination etcd is authoritative and healthy.
-//	  - SourceSeedCleanup: tear down the source control plane (reuse runMigrateShootFlow teardown tasks).
-//	  - MigrationCompleted: set status.seedName = spec.seedName and clear the live migration state.
-func (r *Reconciler) runLiveMigrationStep(ctx context.Context, _ logr.Logger, shoot *gardencorev1beta1.Shoot, step liveMigrationStep) error {
-	// Step bodies are not yet implemented (blocked on later phases and the etcd-druid dependency). For now, do not flip
-	// the condition to True so the migration does not spuriously progress. Persist the condition as-is to record that
-	// the owning gardenlet has picked up the step.
+// setLiveMigrationStepCondition flips the step's tracking condition to True when the step reported completion, or keeps
+// it Progressing otherwise.
+func (r *Reconciler) setLiveMigrationStepCondition(ctx context.Context, shoot *gardencorev1beta1.Shoot, step liveMigrationStep, done bool) error {
 	condition := v1beta1helper.GetOrInitConditionWithClock(r.Clock, v1beta1helper.GetLiveMigrationConditions(shoot), step.conditionType)
-	condition = v1beta1helper.UpdatedConditionWithClock(r.Clock, condition, gardencorev1beta1.ConditionProgressing, "StepInProgress", "The live migration step is in progress.")
+	if done {
+		condition = v1beta1helper.UpdatedConditionWithClock(r.Clock, condition, gardencorev1beta1.ConditionTrue, "StepCompleted", "The live migration step has been completed.")
+	} else {
+		condition = v1beta1helper.UpdatedConditionWithClock(r.Clock, condition, gardencorev1beta1.ConditionProgressing, "StepInProgress", "The live migration step is in progress.")
+	}
 	return r.patchLiveMigrationConditions(ctx, shoot, condition)
+}
+
+// runLiveMigrationStep executes a single, this-gardenlet-owned live migration step. It returns whether the step has
+// been completed (i.e. its tracking condition may be set to True). A step that is still in progress returns
+// (false, nil) so the reconciler requeues and re-evaluates it.
+//
+// TODO(@acumino): The steps that deploy the destination control plane and perform the DNS/Istio cutover
+//
+//	(DestinationKubeAPIServerReady, MigrateDNSRecords) and the source cleanup (SourceSeedCleanup) reuse the large
+//	botanist flows from runReconcileShootFlow/runMigrateShootFlow. They are wired incrementally; the etcd-formation
+//	and endpoint-publishing steps are implemented below.
+func (r *Reconciler) runLiveMigrationStep(ctx context.Context, log logr.Logger, botanist *botanistpkg.Botanist, step liveMigrationStep) (bool, error) {
+	switch step.conditionType {
+	case gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin:
+		// The source persists its ShootState (including ca-etcd-peer) so the destination can restore it,
+		// exposes its etcd peer ports across seeds, and (once the destination has exposed its peers)
+		// redeploys etcd so it advertises the destination members as additional peers.
+		if err := botanist.PersistShootState(ctx); err != nil {
+			return false, fmt.Errorf("failed to persist shoot state: %w", err)
+
+		}
+		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
+			return false, err
+		}
+		if v1beta1helper.GetLiveMigrationCondition(botanist.Shoot.GetInfo(), gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined) == nil {
+			log.Info("Waiting for the destination gardenlet to expose its etcd peers before preparing the source etcd for peer join")
+			return false, nil
+		}
+		if err := botanist.DeployEtcd(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.WaitUntilEtcdsReady(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined:
+		// The destination restores secrets from ShootState (including ca-etcd-peer) so it shares the source CA,
+		// exposes its etcd peer ports across seeds, and (once the source is ready) deploys etcd
+		// configured to join the existing source cluster. It waits until all members (source + destination) are ready.
+		if err := botanist.InitializeSecretsManagement(ctx); err != nil {
+			return false, fmt.Errorf("failed to initialize secrets management: %w", err)
+
+		}
+		if err := botanist.DeployEtcdPeerExposure(ctx); err != nil {
+			return false, err
+		}
+		if !v1beta1helper.IsLiveMigrationConditionTrue(botanist.Shoot.GetInfo(), gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin) {
+			log.Info("Waiting for the source gardenlet to prepare its etcd for peer join before joining the source cluster")
+			return false, nil
+		}
+		if err := botanist.DeployEtcd(ctx); err != nil {
+			return false, err
+		}
+		if err := botanist.WaitUntilEtcdsReady(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case gardencorev1beta1.ShootLiveMigrationSourceSeedCleanup:
+		// Remove the cross-seed peer exposure of the source seed as part of the source cleanup.
+		if err := botanist.DestroyEtcdPeerExposure(ctx); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	default:
+		// The remaining steps (extension migration, destination kube-apiserver, DNS cutover, etcd migration
+		// verification, completion) are not yet wired. Keep them Progressing so the migration does not spuriously
+		// advance past unimplemented work.
+		log.Info("Live migration step is not yet implemented; keeping it in progress", "step", step.conditionType)
+		return false, nil
+	}
 }
 
 // ensureLiveMigrationConditionsInitialized makes sure status.liveMigration exists and holds an initialized condition
