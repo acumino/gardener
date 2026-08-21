@@ -209,6 +209,19 @@ EOF
     setup_containerd_registry_mirrors $nodes
     setup_kind_with_lpp_resize_support
 
+    # Patch CoreDNS in the secondary kind cluster to forward local.gardener.cloud to bind9 at the stable
+    # loopback IP 172.18.255.53. Without this, components running as pods in seed2 cannot resolve
+    # local.gardener.cloud domains (e.g. during live control-plane migration).
+    if [[ "$CLUSTER_NAME" == "gardener-local2" ]]; then
+      echo "Patching CoreDNS to forward local.gardener.cloud to bind9 at 172.18.255.53..."
+      existing_corefile=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}')
+      new_corefile=$(printf '%s\nlocal.gardener.cloud:53 {\n    forward . 172.18.255.53\n    cache 30\n}\n' "$existing_corefile")
+      kubectl patch configmap coredns -n kube-system --type=merge \
+        --patch "{\"data\":{\"Corefile\":$(echo "$new_corefile" | jq -Rs .)}}"
+      kubectl rollout restart deployment/coredns -n kube-system
+      kubectl rollout status deployment/coredns -n kube-system --timeout=60s
+    fi
+
     for node in $(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}'); do
       kubectl taint node "$node" node-role.kubernetes.io/control-plane:NoSchedule- || true
     done
