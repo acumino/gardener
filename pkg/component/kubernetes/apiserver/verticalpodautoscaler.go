@@ -26,7 +26,7 @@ func (k *kubeAPIServer) emptyVerticalPodAutoscaler() *vpaautoscalingv1.VerticalP
 func (k *kubeAPIServer) reconcileVerticalPodAutoscaler(ctx context.Context, verticalPodAutoscaler *vpaautoscalingv1.VerticalPodAutoscaler, deployment *appsv1.Deployment) error {
 	kubeAPIServerMinAllowed := corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("20m"),
-		corev1.ResourceMemory: resource.MustParse("200M"),
+		corev1.ResourceMemory: resource.MustParse("64Mi"),
 	}
 
 	maps.Insert(kubeAPIServerMinAllowed, maps.All(k.values.Autoscaling.MinAllowed))

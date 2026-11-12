@@ -71,8 +71,8 @@ func (g *gardenerControllerManager) deployment(secretGenericTokenKubeconfig, sec
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
 							},
 							LivenessProbe: &corev1.Probe{

@@ -1102,7 +1102,7 @@ func (e *etcd) computeMinAllowedForETCDContainer() corev1.ResourceList {
 
 	if e.values.Class == ClassImportant {
 		minAllowed = corev1.ResourceList{
-			corev1.ResourceMemory: resource.MustParse("300M"),
+			corev1.ResourceMemory: resource.MustParse("100M"),
 		}
 	}
 
@@ -1113,8 +1113,8 @@ func (e *etcd) computeMinAllowedForETCDContainer() corev1.ResourceList {
 func (e *etcd) computeETCDContainerResources(minAllowedETCD corev1.ResourceList) *corev1.ResourceRequirements {
 	resourcesETCD := kubernetesutils.MaximumResourcesFromResourceList(
 		corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("30m"),
-			corev1.ResourceMemory: resource.MustParse("150M"),
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("100M"),
 		},
 		minAllowedETCD,
 	)
@@ -1122,8 +1122,8 @@ func (e *etcd) computeETCDContainerResources(minAllowedETCD corev1.ResourceList)
 	if e.values.Class == ClassImportant {
 		resourcesETCD = kubernetesutils.MaximumResourcesFromResourceList(
 			corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("150m"),
-				corev1.ResourceMemory: resource.MustParse("500M"),
+				corev1.ResourceCPU:    resource.MustParse("30m"),
+				corev1.ResourceMemory: resource.MustParse("150M"),
 			},
 			minAllowedETCD,
 		)
@@ -1140,8 +1140,8 @@ func (e *etcd) computeBackupRestoreContainerResources() *corev1.ResourceRequirem
 
 	if e.values.Class == ClassImportant {
 		resourcesBackupRestore = corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("20m"),
-			corev1.ResourceMemory: resource.MustParse("80Mi"),
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("40Mi"),
 		}
 	}
 
@@ -1151,8 +1151,8 @@ func (e *etcd) computeBackupRestoreContainerResources() *corev1.ResourceRequirem
 func (e *etcd) computeCompactionJobContainerResources() *corev1.ResourceRequirements {
 	return &corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("600m"),
-			corev1.ResourceMemory: resource.MustParse("3Gi"),
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
 		},
 	}
 }

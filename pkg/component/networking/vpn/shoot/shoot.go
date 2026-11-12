@@ -634,8 +634,8 @@ func (v *vpnShoot) container(secrets []vpnSecret, index *int) *corev1.Container 
 		Env:             v.getEnvVars(index),
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("100Mi"),
+				corev1.ResourceCPU:    resource.MustParse("20m"),
+				corev1.ResourceMemory: resource.MustParse("32Mi"),
 			},
 		},
 		SecurityContext: &corev1.SecurityContext{
@@ -969,8 +969,8 @@ func (v *vpnShoot) getInitContainers() []corev1.Container {
 		},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("30m"),
-				corev1.ResourceMemory: resource.MustParse("32Mi"),
+				corev1.ResourceCPU:    resource.MustParse("10m"),
+				corev1.ResourceMemory: resource.MustParse("16Mi"),
 			},
 		},
 	}

@@ -7,6 +7,10 @@ metadata:
     shoot.gardener.cloud/cloud-config-execution-max-delay-seconds: "0"
     authentication.gardener.cloud/issuer: "managed"
 spec:
+  controlPlane:
+    highAvailability:
+      failureTolerance:
+        type: node # {node,zone}
   cloudProfile:
     name: local
   credentialsBindingName: local

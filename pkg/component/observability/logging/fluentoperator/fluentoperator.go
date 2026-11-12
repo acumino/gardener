@@ -288,7 +288,7 @@ func (f *fluentOperator) Deploy(ctx context.Context) error {
 							ContainerName:       name,
 							ControlledResources: &[]corev1.ResourceName{corev1.ResourceMemory},
 							MinAllowed: corev1.ResourceList{
-								corev1.ResourceMemory: resource.MustParse("128Mi"),
+								corev1.ResourceMemory: resource.MustParse("32Mi"),
 							},
 						},
 						{

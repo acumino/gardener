@@ -36,7 +36,7 @@ func (g *gardenerDiscoveryServer) verticalPodAutoscaler() *vpaautoscalingv1.Vert
 						ControlledValues: new(vpaautoscalingv1.ContainerControlledValuesRequestsOnly),
 						MinAllowed: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("10m"),
-							corev1.ResourceMemory: resource.MustParse("64Mi"),
+							corev1.ResourceMemory: resource.MustParse("32Mi"),
 						},
 					},
 					{

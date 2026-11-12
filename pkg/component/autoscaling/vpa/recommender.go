@@ -237,8 +237,8 @@ func (v *vpa) reconcileRecommenderDeployment(deployment *appsv1.Deployment, serv
 		memoryRequest = "15Mi"
 	} else {
 		// Seed recommenders are not subject to autoscaling. Use values which would suffice for large seeds and soil clusters
-		cpuRequest = "200m"
-		memoryRequest = "800M"
+		cpuRequest = "20m"
+		memoryRequest = "64Mi"
 	}
 
 	deployment.Labels = utils.MergeStringMaps(v.getDeploymentLabels(recommender), map[string]string{

@@ -414,11 +414,11 @@ func (f *fluentBit) getFluentBit() *fluentbitv1alpha2.FluentBit {
 			},
 			Resources: corev1.ResourceRequirements{
 				Limits: corev1.ResourceList{
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourceMemory: resource.MustParse("128Mi"),
 				},
 				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("150m"),
-					corev1.ResourceMemory: resource.MustParse("200Mi"),
+					corev1.ResourceCPU:    resource.MustParse("20m"),
+					corev1.ResourceMemory: resource.MustParse("64Mi"),
 				},
 			},
 			ReadinessProbe: &corev1.Probe{

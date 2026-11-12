@@ -172,8 +172,8 @@ func (v *victoriaOperator) deployment() *appsv1.Deployment {
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("80m"),
-									corev1.ResourceMemory: resource.MustParse("120Mi"),
+									corev1.ResourceCPU:    resource.MustParse("20m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
 								},
 							},
 							LivenessProbe: &corev1.Probe{

@@ -81,8 +81,8 @@ func (a *gardenerAdmissionController) deployment(secretServerCert, secretGeneric
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("200Mi"),
+									corev1.ResourceCPU:    resource.MustParse("20m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
 								},
 							},
 							LivenessProbe: &corev1.Probe{

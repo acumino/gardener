@@ -69,8 +69,8 @@ func (g *gardenerScheduler) deployment(secretGenericTokenKubeconfig, secretVirtu
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("50Mi"),
+									corev1.ResourceCPU:    resource.MustParse("10m"),
+									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
 							LivenessProbe: &corev1.Probe{

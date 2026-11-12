@@ -66,8 +66,8 @@ func (p *prometheusOperator) deployment() *appsv1.Deployment {
 							}},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("100Mi"),
+									corev1.ResourceCPU:    resource.MustParse("20m"),
+									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
 							SecurityContext: &corev1.SecurityContext{
