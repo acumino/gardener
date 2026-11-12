@@ -35,7 +35,7 @@ func (g *gardenerControllerManager) verticalPodAutoscaler() *vpaautoscalingv1.Ve
 					{
 						ContainerName: containerName,
 						MinAllowed: corev1.ResourceList{
-							corev1.ResourceMemory: resource.MustParse("300Mi"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
 						},
 					},
 					{

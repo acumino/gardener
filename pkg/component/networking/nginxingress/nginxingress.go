@@ -201,11 +201,11 @@ func (n *nginxIngress) computeResourcesData() (map[string][]byte, error) {
 		healthProbePort      = intstr.FromInt32(10254)
 		resourceRequirements = corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				corev1.ResourceMemory: resource.MustParse("1500Mi"),
+				corev1.ResourceMemory: resource.MustParse("200Mi"),
 			},
 			Requests: corev1.ResourceList{
 				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("375Mi"),
+				corev1.ResourceMemory: resource.MustParse("100Mi"),
 			},
 		}
 	)
@@ -729,7 +729,7 @@ func (n *nginxIngress) computeResourcesData() (map[string][]byte, error) {
 						{
 							ContainerName: n.getName("Container", false),
 							MinAllowed: corev1.ResourceList{
-								corev1.ResourceMemory: resource.MustParse("100Mi"),
+								corev1.ResourceMemory: resource.MustParse("32Mi"),
 							},
 						},
 						{

@@ -64,8 +64,8 @@ func (p *prometheus) prometheus(cortexConfigMap *corev1.ConfigMap) *monitoringv1
 				Version:           p.values.Version,
 				Resources: corev1.ResourceRequirements{
 					Requests: ptr.Deref(p.values.ResourceRequests, corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("300m"),
-						corev1.ResourceMemory: resource.MustParse("1000Mi"),
+						corev1.ResourceCPU:    resource.MustParse("20m"),
+						corev1.ResourceMemory: resource.MustParse("128Mi"),
 					}),
 				},
 				ServiceAccountName: p.name(),

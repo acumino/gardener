@@ -89,8 +89,8 @@ func (g *gardenerDiscoveryServer) deployment(
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: map[corev1.ResourceName]resource.Quantity{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("128Mi"),
+									corev1.ResourceCPU:    resource.MustParse("10m"),
+									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
 							Ports: []corev1.ContainerPort{
