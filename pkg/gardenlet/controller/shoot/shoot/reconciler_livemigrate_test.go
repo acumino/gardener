@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1beta1helper "github.com/gardener/gardener/pkg/api/core/v1beta1/helper"
@@ -141,5 +142,59 @@ var _ = Describe("#checkGardenletVersionParity", func() {
 			err := r.checkGardenletVersionParity(ctx, shoot, v1beta1helper.LiveMigrationRoleDestination)
 			Expect(err).To(MatchError(ContainSubstring(`"source-seed" not found`)))
 		})
+	})
+})
+
+var _ = Describe("#finalizeAbortLiveMigration", func() {
+	var (
+		ctx   = context.TODO()
+		shoot *gardencorev1beta1.Shoot
+		cl    client.Client
+		r     *Reconciler
+	)
+
+	BeforeEach(func() {
+		shoot = &gardencorev1beta1.Shoot{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "shoot",
+				Namespace: "garden",
+				Annotations: map[string]string{
+					v1beta1constants.AnnotationMigrationLiveMigrate:      "true",
+					v1beta1constants.AnnotationMigrationAbortLiveMigrate: "true",
+				},
+			},
+			Spec: gardencorev1beta1.ShootSpec{SeedName: new("dest-seed")},
+			Status: gardencorev1beta1.ShootStatus{
+				SeedName:           new("source-seed"),
+				MigrationStartTime: &metav1.Time{Time: metav1.Now().Time},
+				LiveMigration: &gardencorev1beta1.LiveMigration{
+					Conditions: []gardencorev1beta1.Condition{{
+						Type:   gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined,
+						Status: gardencorev1beta1.ConditionFalse,
+					}},
+				},
+			},
+		}
+
+		cl = fakeclient.NewClientBuilder().
+			WithScheme(kubernetes.GardenScheme).
+			WithObjects(shoot).
+			WithStatusSubresource(&gardencorev1beta1.Shoot{}).
+			Build()
+		r = &Reconciler{GardenClient: cl}
+	})
+
+	It("reverts spec.seedName to the source seed and clears the live migration state and annotations", func() {
+		Expect(r.finalizeAbortLiveMigration(ctx, shoot)).To(Succeed())
+
+		updated := &gardencorev1beta1.Shoot{}
+		Expect(cl.Get(ctx, client.ObjectKeyFromObject(shoot), updated)).To(Succeed())
+
+		Expect(updated.Spec.SeedName).To(Equal(new("source-seed")))
+		Expect(updated.Annotations).NotTo(HaveKey(v1beta1constants.AnnotationMigrationLiveMigrate))
+		Expect(updated.Annotations).NotTo(HaveKey(v1beta1constants.AnnotationMigrationAbortLiveMigrate))
+		Expect(updated.Status.LiveMigration).To(BeNil())
+		Expect(updated.Status.MigrationStartTime).To(BeNil())
+		Expect(updated.Status.SeedName).To(Equal(new("source-seed")))
 	})
 })

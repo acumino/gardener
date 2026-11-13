@@ -43,6 +43,9 @@ var liveMigrationStepOwners = map[gardencorev1beta1.ConditionType]v1beta1helper.
 	gardencorev1beta1.ShootLiveMigrationEtcdMigrationComplete:                      v1beta1helper.LiveMigrationRoleDestination,
 	gardencorev1beta1.ShootLiveMigrationMigrationCompleted:                         v1beta1helper.LiveMigrationRoleDestination,
 	gardencorev1beta1.ShootLiveMigrationSourceSeedFinalTeardown:                    v1beta1helper.LiveMigrationRoleSource,
+
+	gardencorev1beta1.ShootLiveMigrationAbortDestinationCleanup: v1beta1helper.LiveMigrationRoleDestination,
+	gardencorev1beta1.ShootLiveMigrationAbortSourceRevert:       v1beta1helper.LiveMigrationRoleSource,
 }
 
 // liveMigrationConditionOrder is the canonical ordering of live migration conditions, matching the flow step sequence.
@@ -172,7 +175,99 @@ func (r *Reconciler) runLiveMigrateShootFlow(ctx context.Context, o *operation.O
 	return nil
 }
 
-// executeStepOrWait returns a TaskFn that runs the given task group if this gardenlet owns the step, or waits for the peer gardenlet to complete it.
+// prepareLiveMigrationFlow constructs the botanist and error context shared by the live migration forward and abort
+// flows, sets the live migration role (so IsRestorePhase() is consistent across every task) and computes the shoot
+// networks (the live migration flow does not run the infrastructure reconciliation that normally populates them).
+func (r *Reconciler) prepareLiveMigrationFlow(ctx context.Context, o *operation.Operation, role v1beta1helper.LiveMigrationRole) (*botanistpkg.Botanist, *errorsutils.ErrorContext, *v1beta1helper.WrappedLastErrors) {
+	var (
+		botanist        *botanistpkg.Botanist
+		err             error
+		tasksWithErrors []string
+	)
+
+	for _, lastError := range o.Shoot.GetInfo().Status.LastErrors {
+		if lastError.TaskID != nil {
+			tasksWithErrors = append(tasksWithErrors, *lastError.TaskID)
+		}
+	}
+
+	errorContext := errorsutils.NewErrorContext("Shoot control plane live migration", tasksWithErrors)
+
+	if err = errorsutils.HandleErrors(errorContext,
+		func(errorID string) error {
+			o.CleanShootTaskError(ctx, errorID)
+			return nil
+		},
+		nil,
+		errorsutils.ToExecute("Create botanist", func() error {
+			return retryutils.UntilTimeout(ctx, liveMigrationStepInterval, liveMigrationStepTimeout, func(context.Context) (done bool, err error) {
+				botanist, err = botanistpkg.New(ctx, o)
+				if err != nil {
+					return retryutils.MinorError(err)
+				}
+				return retryutils.Ok()
+			})
+		}),
+	); err != nil {
+		return nil, nil, v1beta1helper.NewWrappedLastErrors(v1beta1helper.FormatLastErrDescription(err), err)
+	}
+
+	// Set before the graph runs so IsRestorePhase() is consistent across every task.
+	o.Shoot.LiveMigrationRole = role
+
+	// The live migration flow deploys the shoot control plane on the destination seed without running the
+	// infrastructure reconciliation that normally populates o.Shoot.Networks (see WaitForInfrastructure). Compute
+	// the networks here from the shoot's spec and status so control plane components (e.g. kube-apiserver, VPN) can
+	// read the CIDRs. This mirrors the regular reconcile and migrate flows.
+	if o.Shoot.GetInfo().Spec.Networking != nil && o.Shoot.GetInfo().Spec.Networking.Nodes != nil {
+		networks, err := shoot.ToNetworks(o.Shoot.GetInfo(), o.Shoot.IsWorkerless)
+		if err != nil {
+			return nil, nil, v1beta1helper.NewWrappedLastErrors(v1beta1helper.FormatLastErrDescription(err), err)
+		}
+		o.Shoot.Networks = networks
+	}
+
+	return botanist, errorContext, nil
+}
+
+// runAbortLiveMigrateShootFlow runs the abort flow for an in-progress live control plane migration. The destination
+// gardenlet removes the etcd members it added and tears down its migration-specific resources; afterwards the source
+// gardenlet reverts its etcd to a standalone cluster and cleans up its migration-specific resources. The two steps are
+// coordinated via the ShootLiveMigrationAbort* conditions: the source revert only runs after the destination cleanup is
+// complete, so the destination can still reach the source to deregister its members before the source peer URLs go away.
+func (r *Reconciler) runAbortLiveMigrateShootFlow(ctx context.Context, o *operation.Operation, role v1beta1helper.LiveMigrationRole) *v1beta1helper.WrappedLastErrors {
+	botanist, errorContext, werr := r.prepareLiveMigrationFlow(ctx, o, role)
+	if werr != nil {
+		return werr
+	}
+
+	var (
+		g = flow.NewGraph("Shoot control plane live migration abort")
+
+		destinationCleanup = g.Add(flow.Task{
+			Name: "Cleaning up destination seed after abort",
+			Fn:   r.executeStepOrWait(botanist, role, gardencorev1beta1.ShootLiveMigrationAbortDestinationCleanup, abortDestinationCleanupTaskGroup(ctx, botanist, o)),
+		})
+		_ = g.Add(flow.Task{
+			Name:         "Reverting source seed etcd after abort",
+			Fn:           r.executeStepOrWait(botanist, role, gardencorev1beta1.ShootLiveMigrationAbortSourceRevert, abortSourceRevertTaskGroup(botanist)),
+			Dependencies: flow.NewTaskIDs(destinationCleanup),
+		})
+	)
+
+	f := g.Compile()
+	if err := f.Run(ctx, flow.Opts{
+		Log:              botanist.Logger,
+		ProgressReporter: r.newProgressReporter(botanist.ReportShootProgress),
+		ErrorContext:     errorContext,
+		ErrorCleaner:     botanist.CleanShootTaskError,
+	}); err != nil {
+		return v1beta1helper.NewWrappedLastErrors(v1beta1helper.FormatLastErrDescription(err), flow.Errors(err))
+	}
+
+	return nil
+}
+
 func (r *Reconciler) executeStepOrWait(botanist *botanistpkg.Botanist, role v1beta1helper.LiveMigrationRole, conditionType gardencorev1beta1.ConditionType, group flow.TaskGroup) flow.TaskFn {
 	owner := liveMigrationStepOwners[conditionType]
 	return flow.TaskFn(func(ctx context.Context) error {
@@ -245,6 +340,26 @@ func (r *Reconciler) finalizeLiveMigration(ctx context.Context, shoot *gardencor
 	controllerutils.RemoveAllTasks(shoot.Annotations)
 	delete(shoot.Annotations, v1beta1constants.AnnotationMigrationLiveMigrate)
 	return r.GardenClient.Patch(ctx, shoot, patch)
+}
+
+// finalizeAbortLiveMigration reverts spec.seedName back to the source seed (status.seedName) and clears the
+// live-migration state and the live-migrate and abort-live-migrate annotations, returning the shoot to normal
+// reconciliation on the source seed. It runs on the source gardenlet after both abort cleanup steps have completed.
+func (r *Reconciler) finalizeAbortLiveMigration(ctx context.Context, shoot *gardencorev1beta1.Shoot) error {
+	patch := client.MergeFrom(shoot.DeepCopy())
+	// Revert spec.seedName to the source seed so the shoot is no longer considered to be migrating. The gardener-apiserver
+	// admission allows this direct spec.seedName revert while the abort annotation is present (see the shoot validator).
+	shoot.Spec.SeedName = shoot.Status.SeedName
+	delete(shoot.Annotations, v1beta1constants.AnnotationMigrationLiveMigrate)
+	delete(shoot.Annotations, v1beta1constants.AnnotationMigrationAbortLiveMigrate)
+	if err := r.GardenClient.Patch(ctx, shoot, patch); err != nil {
+		return fmt.Errorf("failed to revert spec.seedName and remove live migration annotations: %w", err)
+	}
+
+	statusPatch := client.StrategicMergeFrom(shoot.DeepCopy())
+	shoot.Status.LiveMigration = nil
+	shoot.Status.MigrationStartTime = nil
+	return r.GardenClient.Status().Patch(ctx, shoot, statusPatch)
 }
 
 func (r *Reconciler) patchLiveMigrationConditions(ctx context.Context, shoot *gardencorev1beta1.Shoot, conditions ...gardencorev1beta1.Condition) error {
@@ -864,6 +979,97 @@ func sourceSeedFinalTeardownTaskGroup(b *botanistpkg.Botanist, o *operation.Oper
 			return o.DeleteClusterResourceFromSeed(ctx)
 		},
 		Dependencies: flow.NewTaskIDs(waitUntilNamespaceDeleted),
+	})
+	return g
+}
+
+// taskGroupAbortDestinationCleanup is a flow.TaskID for a logical flow.TaskGroup.
+const taskGroupAbortDestinationCleanup flow.TaskID = "TaskGroupAbortDestinationCleanup"
+
+// abortDestinationCleanupTaskGroup tears down the destination seed's migration-specific resources when a live
+// migration is aborted. Destroying the destination etcd deletes the etcd CR, which makes etcd-druid remove the members
+// it added (to join the source cluster) before the StatefulSet is torn down - this runs before the namespace deletion
+// so the removal happens gracefully while the source peer endpoints are still reachable. All tasks are skipped if the
+// destination control plane namespace no longer exists (idempotent re-runs).
+func abortDestinationCleanupTaskGroup(ctx context.Context, b *botanistpkg.Botanist, o *operation.Operation) flow.TaskGroup {
+	if err := checkIfSeedNamespaceExists(ctx, o, b); err != nil {
+		b.Logger.Error(err, "Failed to check if seed namespace exists, assuming it exists")
+	}
+	namespaceExists := b.SeedNamespaceObject != nil && b.SeedNamespaceObject.UID != ""
+
+	g := flow.NewTaskGroup(taskGroupAbortDestinationCleanup)
+
+	destroyEtcd := g.Add(flow.Task{
+		Name:   "Destroying destination etcd and removing its members from the cluster",
+		Fn:     flow.TaskFn(b.DestroyEtcd).RetryUntilTimeout(defaultInterval, defaultTimeout),
+		SkipIf: !namespaceExists,
+	})
+	waitUntilEtcdDeleted := g.Add(flow.Task{
+		Name:         "Waiting until destination etcd has been destroyed",
+		Fn:           flow.TaskFn(b.WaitUntilEtcdsDeleted).RetryUntilTimeout(defaultInterval, defaultTimeout),
+		Dependencies: flow.NewTaskIDs(destroyEtcd),
+		SkipIf:       !namespaceExists,
+	})
+	destroyEtcdMemberExposure := g.Add(flow.Task{
+		Name:         "Destroying destination etcd member exposure",
+		Fn:           b.DestroyEtcdMemberExposure,
+		Dependencies: flow.NewTaskIDs(waitUntilEtcdDeleted),
+		SkipIf:       !namespaceExists,
+	})
+	destroySourceBackupEntry := g.Add(flow.Task{
+		Name:         "Deleting source backup entry from the destination namespace",
+		Fn:           b.DestroySourceBackupEntry,
+		Dependencies: flow.NewTaskIDs(waitUntilEtcdDeleted),
+		SkipIf:       !namespaceExists,
+	})
+	deleteNamespace := g.Add(flow.Task{
+		Name:         "Deleting shoot namespace in destination Seed",
+		Fn:           flow.TaskFn(b.DeleteSeedNamespace).RetryUntilTimeout(defaultInterval, defaultTimeout),
+		Dependencies: flow.NewTaskIDs(destroyEtcdMemberExposure, destroySourceBackupEntry),
+		SkipIf:       !namespaceExists,
+	})
+	_ = g.Add(flow.Task{
+		Name:         "Waiting until shoot namespace in destination Seed has been deleted",
+		Fn:           b.WaitUntilSeedNamespaceDeleted,
+		Dependencies: flow.NewTaskIDs(deleteNamespace),
+		SkipIf:       !namespaceExists,
+	})
+	return g
+}
+
+// taskGroupAbortSourceRevert is a flow.TaskID for a logical flow.TaskGroup.
+const taskGroupAbortSourceRevert flow.TaskID = "TaskGroupAbortSourceRevert"
+
+// abortSourceRevertTaskGroup reverts the source seed's etcd to a standalone cluster when a live migration is aborted:
+// it clears the cross-seed live-migration etcd configuration (peer/client URLs, bootstrap, SAN skip) and redeploys the
+// etcd, removes the source etcd member exposure, and restores the shoot's backup entry ownership to the source seed.
+// It runs only after the destination cleanup has completed so the destination can deregister its members first.
+func abortSourceRevertTaskGroup(b *botanistpkg.Botanist) flow.TaskGroup {
+	g := flow.NewTaskGroup(taskGroupAbortSourceRevert)
+
+	deployEtcdWithoutLiveMigration := g.Add(flow.Task{
+		Name: "Removing live migration configuration from source etcd",
+		Fn: func(ctx context.Context) error {
+			b.Shoot.Components.ControlPlane.EtcdMain.SetLiveMigration(nil)
+			return b.DeployEtcd(ctx)
+		},
+	})
+	waitUntilEtcdReady := g.Add(flow.Task{
+		Name:         "Waiting until source etcd is ready after reverting live migration configuration",
+		Fn:           b.WaitUntilEtcdsReady,
+		Dependencies: flow.NewTaskIDs(deployEtcdWithoutLiveMigration),
+	})
+	_ = g.Add(flow.Task{
+		Name:         "Destroying source etcd member exposure",
+		Fn:           b.DestroyEtcdMemberExposure,
+		Dependencies: flow.NewTaskIDs(waitUntilEtcdReady),
+	})
+	_ = g.Add(flow.Task{
+		Name: "Restoring backup entry ownership to the source seed",
+		Fn: func(ctx context.Context) error {
+			return b.Shoot.Components.BackupEntry.Restore(ctx, nil)
+		},
+		Dependencies: flow.NewTaskIDs(waitUntilEtcdReady),
 	})
 	return g
 }

@@ -210,10 +210,19 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 	log = log.WithValues("operation", "live-migrate", "liveMigrationRole", role)
 
 	if role == v1beta1helper.LiveMigrationRoleNone && shoot.Status.LiveMigration != nil {
+		pivotIdx := slices.Index(v1beta1helper.LiveMigrationConditionOrder, gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined)
+		if shoot.Status.LiveMigration != nil && slices.ContainsFunc(shoot.Status.LiveMigration.Conditions, func(cond gardencorev1beta1.Condition) bool {
+			return cond.Status == gardencorev1beta1.ConditionTrue &&
+				slices.Contains(v1beta1helper.LiveMigrationConditionOrder[pivotIdx:], cond.Type)
+		}) {
+			err := fmt.Errorf("destination etcd members have already joined; add the %q annotation to properly abort the live migration", v1beta1constants.AnnotationMigrationAbortLiveMigrate)
+			updateErr := r.patchShootStatusOperationError(ctx, shoot, err.Error(), gardencorev1beta1.LastOperationTypeLiveMigrate, false)
+			return reconcile.Result{}, errorsutils.WithSuppressed(err, updateErr)
+		}
 		if v1beta1helper.HasLiveMigrationAnnotation(shoot.Annotations) {
 			patch := client.MergeFrom(shoot.DeepCopy())
-			controllerutils.RemoveAllTasks(shoot.Annotations)
 			delete(shoot.Annotations, v1beta1constants.AnnotationMigrationLiveMigrate)
+			controllerutils.RemoveAllTasks(shoot.Annotations)
 			if err := r.GardenClient.Patch(ctx, shoot, patch); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to remove stale live migration annotation: %w", err)
 			}
@@ -225,6 +234,10 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 	if err := r.checkGardenletVersionParity(ctx, shoot, role); err != nil {
 		updateErr := r.patchShootStatusOperationError(ctx, shoot, err.Error(), gardencorev1beta1.LastOperationTypeLiveMigrate, false)
 		return reconcile.Result{}, errorsutils.WithSuppressed(err, updateErr)
+	}
+
+	if v1beta1helper.HasAbortLiveMigrationAnnotation(shoot.Annotations) {
+		return r.abortLiveMigrateShoot(ctx, log, shoot, role)
 	}
 
 	o, result, err := r.prepareOperation(ctx, log, shoot)
@@ -248,6 +261,37 @@ func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoo
 
 	r.Recorder.Eventf(shoot, nil, corev1.EventTypeNormal, gardencorev1beta1.EventLiveMigrated, gardencorev1beta1.EventActionLiveMigrate, "Live migrated Shoot cluster")
 	log.Info("Live control plane migration completed")
+	return reconcile.Result{}, r.patchShootStatusOperationSuccess(ctx, shoot, gardencorev1beta1.LastOperationTypeLiveMigrate)
+}
+
+// abortLiveMigrateShoot runs the abort flow for an in-progress live control plane migration. Both the source and
+// destination gardenlets clean up their migration-specific resources; afterwards the source gardenlet reverts
+// spec.seedName to the source seed and clears the live migration state so the shoot resumes normal reconciliation.
+func (r *Reconciler) abortLiveMigrateShoot(ctx context.Context, log logr.Logger, shoot *gardencorev1beta1.Shoot, role v1beta1helper.LiveMigrationRole) (reconcile.Result, error) {
+	log = log.WithValues("abort", true)
+
+	o, result, err := r.prepareOperation(ctx, log, shoot)
+	if err != nil || o == nil {
+		return result, err
+	}
+
+	if flowErr := r.runAbortLiveMigrateShootFlow(ctx, o, role); flowErr != nil {
+		updateErr := r.patchShootStatusOperationError(ctx, shoot, flowErr.Description, gardencorev1beta1.LastOperationTypeLiveMigrate, false, flowErr.LastErrors...)
+		return reconcile.Result{}, errorsutils.WithSuppressed(errors.New(flowErr.Description), updateErr)
+	}
+
+	// The destination gardenlet has cleaned up its resources; the source gardenlet owns the finalization (reverting
+	// spec.seedName and clearing the live migration state), as it stays responsible for the shoot afterwards.
+	if role == v1beta1helper.LiveMigrationRoleDestination {
+		log.Info("Live migration abort cleanup completed on destination seed, source seed will finalize the abort")
+		return reconcile.Result{}, nil
+	}
+
+	if err := r.finalizeAbortLiveMigration(ctx, shoot); err != nil {
+		return reconcile.Result{}, fmt.Errorf("failed to finalize live migration abort: %w", err)
+	}
+
+	log.Info("Live control plane migration aborted, shoot reverted to source seed")
 	return reconcile.Result{}, r.patchShootStatusOperationSuccess(ctx, shoot, gardencorev1beta1.LastOperationTypeLiveMigrate)
 }
 

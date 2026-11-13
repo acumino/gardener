@@ -765,6 +765,12 @@ const (
 	// "true" to declare intent for live control plane migration. It is combined with a spec.seedName change via the
 	// shoots/binding subresource to trigger a live control plane migration.
 	AnnotationMigrationLiveMigrate = "migration.gardener.cloud/live-migrate"
+	// AnnotationMigrationAbortLiveMigrate is a constant for an annotation key on a Shoot resource whose value must be set
+	// to "true" to abort an in-progress live control plane migration and revert the shoot to its source seed. It is only
+	// permitted while the live migration is in progress and the ShootLiveMigrationDestinationEtcdPeersJoined condition has
+	// status "False" (i.e. the destination etcd members failed to join). Once set, the source and destination gardenlets
+	// clean up the migration-specific resources on both seeds and the shoot returns to normal operation on the source seed.
+	AnnotationMigrationAbortLiveMigrate = "migration.gardener.cloud/abort-live-migrate"
 	// AnnotationMigrationInterRegionDistanceThreshold is a constant for an annotation key on a scheduler region ConfigMap
 	// which defines the maximum allowed inter-region distance for live control plane migration.
 	AnnotationMigrationInterRegionDistanceThreshold = "migration.gardener.cloud/inter-region-distance-threshold"
