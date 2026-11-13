@@ -646,6 +646,13 @@ func HasLiveMigrationAnnotation(annotations map[string]string) bool {
 	return liveMigrate
 }
 
+// HasAbortLiveMigrationAnnotation returns true if the abort live control plane migration annotation is set to a truthy
+// value.
+func HasAbortLiveMigrationAnnotation(annotations map[string]string) bool {
+	abort, _ := strconv.ParseBool(annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate])
+	return abort
+}
+
 // LiveMigrationRole describes the role a seed plays during a live control plane migration of a shoot.
 type LiveMigrationRole string
 
@@ -660,10 +667,32 @@ const (
 	LiveMigrationRoleDestination LiveMigrationRole = "Destination"
 )
 
+// LiveMigrationConditionOrder is the canonical ordering of live migration conditions, matching the flow step sequence.
+// Conditions are sorted by this order when written to status so they always appear in flow order regardless of which
+// gardenlet set them first.
+var LiveMigrationConditionOrder = []gardencorev1beta1.ConditionType{
+	gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin,
+	gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined,
+	gardencorev1beta1.ShootLiveMigrationMigrateExtensionsNeededBeforeKubeAPIServer,
+	gardencorev1beta1.ShootLiveMigrationDestinationKubeAPIServerReady,
+	gardencorev1beta1.ShootLiveMigrationSourceSeedCleanup,
+	gardencorev1beta1.ShootLiveMigrationEtcdMigrationComplete,
+	gardencorev1beta1.ShootLiveMigrationMigrationCompleted,
+	gardencorev1beta1.ShootLiveMigrationSourceSeedFinalTeardown,
+	gardencorev1beta1.ShootLiveMigrationAbortDestinationCleanup,
+	gardencorev1beta1.ShootLiveMigrationAbortSourceRevert,
+}
+
 // IsInLiveMigration returns true if the shoot is undergoing a live control plane migration, i.e. the live-migration
 // intent annotation is set and spec.seedName differs from status.seedName.
 func IsInLiveMigration(shoot *gardencorev1beta1.Shoot) bool {
 	return HasLiveMigrationAnnotation(shoot.Annotations) && ShouldPrepareShootForMigration(shoot)
+}
+
+// IsLiveMigrationAborting returns true if the shoot is undergoing a live control plane migration that is being aborted,
+// i.e. it is in live migration and the abort annotation is set.
+func IsLiveMigrationAborting(shoot *gardencorev1beta1.Shoot) bool {
+	return IsInLiveMigration(shoot) && HasAbortLiveMigrationAnnotation(shoot.Annotations)
 }
 
 // GetLiveMigrationRole returns the role the seed with the given name plays during a live control plane migration of the

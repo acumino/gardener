@@ -2311,6 +2311,14 @@ const (
 	// ShootLiveMigrationSourceSeedFinalTeardown indicates that the final teardown of the source
 	// seed has been completed successfully.
 	ShootLiveMigrationSourceSeedFinalTeardown ConditionType = "SourceSeedFinalTeardown"
+	// ShootLiveMigrationAbortDestinationCleanup indicates that, during an aborted live control plane
+	// migration, the destination seed's migration-specific resources (etcd members, etcd, member
+	// exposure, source backup entry, namespace) have been cleaned up.
+	ShootLiveMigrationAbortDestinationCleanup ConditionType = "AbortDestinationCleanup"
+	// ShootLiveMigrationAbortSourceRevert indicates that, during an aborted live control plane
+	// migration, the source seed's etcd has been reverted to a standalone cluster and its
+	// migration-specific resources have been cleaned up.
+	ShootLiveMigrationAbortSourceRevert ConditionType = "AbortSourceRevert"
 )
 
 // ShootPurpose is a type alias for string.

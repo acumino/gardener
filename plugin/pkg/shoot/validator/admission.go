@@ -380,6 +380,7 @@ func (v *ValidateShoot) Validate(ctx context.Context, a admission.Attributes, _ 
 	allErrs = append(allErrs, validationContext.validateAdmissionPlugins(a, v.secretLister)...)
 	allErrs = append(allErrs, validationContext.validateLimits(a)...)
 	allErrs = append(allErrs, validationContext.validateLiveMigrationPrerequisites(a.GetOperation(), v.seedLister, v.configMapLister)...)
+	allErrs = append(allErrs, validationContext.validateAbortLiveMigration(a.GetOperation())...)
 
 	// Skip the validation if the operation is admission.Delete or the spec hasn't changed.
 	if a.GetOperation() != admission.Delete && !reflect.DeepEqual(validationContext.shoot.Spec, validationContext.oldShoot.Spec) {
@@ -475,8 +476,12 @@ func (c *validationContext) validateScheduling(ctx context.Context, a admission.
 				}
 			}
 		} else if !reflect.DeepEqual(c.shoot.Spec.SeedName, c.oldShoot.Spec.SeedName) {
-			oldShootNameStr := ptr.Deref(c.oldShoot.Spec.SeedName, "nil")
-			return admission.NewForbidden(a, fmt.Errorf("spec.seedName '%s' cannot be changed to '%s' by patching the shoot, please use the shoots/binding subresource", oldShootNameStr, *c.shoot.Spec.SeedName))
+			// Allow the gardenlet to revert spec.seedName back to the source seed (status.seedName) when a live control
+			// plane migration is being aborted.
+			if !isAbortLiveMigrationSeedNameRevert(c.oldShoot, c.shoot) {
+				oldShootNameStr := ptr.Deref(c.oldShoot.Spec.SeedName, "nil")
+				return admission.NewForbidden(a, fmt.Errorf("spec.seedName '%s' cannot be changed to '%s' by patching the shoot, please use the shoots/binding subresource", oldShootNameStr, *c.shoot.Spec.SeedName))
+			}
 		}
 	case admission.Delete:
 		return nil
@@ -2021,6 +2026,56 @@ func (c *validationContext) validateLiveMigrationPrerequisites(
 	allErrs = append(allErrs, c.validateInterRegionDistance(sourceSeed, destinationSeed, configMapLister, seedNamePath)...)
 
 	return allErrs
+}
+
+// validateAbortLiveMigration validates that abort-live-migrate is allowed only during an errored live control plane
+// migration where destination etcd peers have not joined and migration has not progressed beyond that step.
+func (c *validationContext) validateAbortLiveMigration(operation admission.Operation) field.ErrorList {
+	if !v1beta1helper.HasAbortLiveMigrationAnnotation(c.shoot.Annotations) {
+		return nil
+	}
+
+	annotationPath := field.NewPath("metadata", "annotations").Key(v1beta1constants.AnnotationMigrationAbortLiveMigrate)
+
+	if !features.DefaultFeatureGate.Enabled(features.LiveControlPlaneMigration) {
+		return field.ErrorList{field.Forbidden(
+			annotationPath,
+			fmt.Sprintf("the %q feature gate is disabled in gardener-apiserver", features.LiveControlPlaneMigration))}
+	}
+
+	if operation == admission.Create {
+		return field.ErrorList{field.Forbidden(annotationPath, "annotation must not be set on shoot creation")}
+	}
+
+	if !v1beta1helper.HasLiveMigrationAnnotation(c.oldShoot.Annotations) ||
+		c.oldShoot.Status.SeedName == nil || c.oldShoot.Spec.SeedName == nil ||
+		*c.oldShoot.Spec.SeedName == *c.oldShoot.Status.SeedName {
+		return field.ErrorList{field.Forbidden(annotationPath, "abort is only allowed while a live control plane migration is in progress")}
+	}
+
+	if c.oldShoot.Status.LastOperation == nil || c.oldShoot.Status.LastOperation.State != core.LastOperationStateError {
+		return field.ErrorList{field.Forbidden(annotationPath, fmt.Sprintf("abort is only allowed while the shoot's last operation is in %q state", core.LastOperationStateError))}
+	}
+
+	pivotIdx := slices.Index(v1beta1helper.LiveMigrationConditionOrder, gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined)
+	if c.oldShoot.Status.LiveMigration != nil && slices.ContainsFunc(c.oldShoot.Status.LiveMigration.Conditions, func(cond core.Condition) bool {
+		return cond.Status == core.ConditionTrue &&
+			slices.Contains(v1beta1helper.LiveMigrationConditionOrder[pivotIdx:], gardencorev1beta1.ConditionType(cond.Type))
+	}) {
+		return field.ErrorList{field.Forbidden(annotationPath, fmt.Sprintf("abort is only allowed when the migration has not progressed past the %q step",
+			gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined))}
+	}
+
+	return nil
+}
+
+// isAbortLiveMigrationSeedNameRevert returns true if the spec.seedName change reverts the shoot back to its source seed
+// (status.seedName) as part of aborting a live control plane migration.
+func isAbortLiveMigrationSeedNameRevert(oldShoot, newShoot *core.Shoot) bool {
+	return v1beta1helper.HasAbortLiveMigrationAnnotation(oldShoot.Annotations) &&
+		oldShoot.Status.SeedName != nil &&
+		newShoot.Spec.SeedName != nil &&
+		*newShoot.Spec.SeedName == *oldShoot.Status.SeedName
 }
 
 func validateGardenletVersions(sourceSeed, destinationSeed *gardencorev1beta1.Seed, fldPath *field.Path) field.ErrorList {

@@ -1,7 +1,7 @@
 # Live Control Plane Migration
 
 > [!IMPORTANT]
-> Live control plane migration ([GEP-39](https://github.com/gardener/enhancements/tree/main/geps/0039-live-control-plane-migration)) is a work in progress. Only the trigger and its prerequisites are wired up today; the gardenlet-side flow, retry, and abort semantics will be added in follow-up work. This document is intentionally minimal and will be enhanced along the way.
+> Live control plane migration ([GEP-39](https://github.com/gardener/enhancements/tree/main/geps/0039-live-control-plane-migration)) is a work in progress. Only the trigger and its prerequisites are wired up today; the gardenlet-side flow and retry semantics will be added in follow-up work. This document is intentionally minimal and will be enhanced along the way.
 
 Live control plane migration moves a highly-available `Shoot` control plane from a *Source Seed* to a *Destination Seed* without the API-server downtime of [control plane migration](./control_plane_migration.md).
 
@@ -46,3 +46,19 @@ Both of the following are required on the `Shoot` to trigger a live control plan
 
     kubectl get --raw /apis/core.gardener.cloud/v1beta1/namespaces/${NAMESPACE}/shoots/${SHOOT_NAME} | jq -c '.spec.seedName = "'${DEST_SEED_NAME}'"' | kubectl replace --raw /apis/core.gardener.cloud/v1beta1/namespaces/${NAMESPACE}/shoots/${SHOOT_NAME}/binding -f - | jq -r '.spec.seedName'
     ```
+
+## Aborting a Migration
+
+If the temporary 5-member etcd cluster cannot form because the `Destination Seed` etcd members fail to join the cluster (typically due to a distant-region/latency issue), the migration can be aborted. The control plane then stays on the `Source Seed`.
+
+To abort, set the following annotation on the `Shoot`:
+
+```yaml
+metadata:
+  annotations:
+    migration.gardener.cloud/abort-live-migrate: "true"
+```
+
+Abort is only permitted while a live migration is in progress and the `DestinationEtcdPeersJoined` condition under `.status.liveMigration.conditions` has status `False`. The `gardener-apiserver` rejects the annotation otherwise (as well as when the `LiveControlPlaneMigration` feature gate is disabled, or on shoot creation).
+
+The operator only needs to set the annotation; they do **not** change `.spec.seedName`. The source and destination gardenlets then clean up the migration-specific resources on both seeds: the `Destination Seed`'s etcd (its members are removed from the cluster), etcd member exposure, source backup entry, and control-plane namespace are torn down; the `Source Seed`'s etcd is reverted to a standalone cluster and its member exposure removed; and backup ownership returns to the `Source Seed`. Finally the gardenlet reverts `.spec.seedName` to the `Source Seed` and clears `.status.liveMigration`, so the `Shoot` resumes normal reconciliation on the `Source Seed`.

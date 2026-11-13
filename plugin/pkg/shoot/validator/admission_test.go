@@ -7008,6 +7008,141 @@ var _ = Describe("validator", func() {
 					Expect(admissionHandler.Validate(ctx, bindingAttrs(admission.Update), nil)).To(Succeed())
 				})
 			})
+
+			Context("abort live control plane migration", func() {
+				abortAttrs := func() admission.Attributes {
+					return admission.NewAttributesRecord(&shoot, &oldShoot, core.Kind("Shoot").WithVersion("version"), shoot.Namespace, shoot.Name, core.Resource("shoots").WithVersion("version"), "", admission.Update, &metav1.UpdateOptions{}, false, userInfo)
+				}
+
+				BeforeEach(func() {
+					DeferCleanup(test.WithFeatureGate(features.DefaultFeatureGate, features.LiveControlPlaneMigration, true))
+
+					oldShoot = *shoot.DeepCopy()
+					oldShoot.Status.SeedName = new(seedName)
+					oldShoot.Status.LastOperation = &core.LastOperation{
+						Type:  core.LastOperationTypeLiveMigrate,
+						State: core.LastOperationStateError,
+					}
+					oldShoot.Status.LiveMigration = &core.LiveMigration{
+						Conditions: []core.Condition{
+							{
+								Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin),
+								Status: core.ConditionTrue,
+							},
+							{
+								Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined),
+								Status: core.ConditionFalse,
+							},
+						},
+					}
+
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+				})
+
+				It("should allow a valid abort request", func() {
+					Expect(admissionHandler.Validate(ctx, abortAttrs(), nil)).To(Succeed())
+				})
+
+				It("should reject when the feature gate is disabled", func() {
+					DeferCleanup(test.WithFeatureGate(features.DefaultFeatureGate, features.LiveControlPlaneMigration, false))
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("feature gate is disabled in gardener-apiserver")))
+				})
+
+				It("should reject when no live migration is in progress because the annotation is absent", func() {
+					oldShoot.Annotations = map[string]string{
+						v1beta1constants.AnnotationMigrationAbortLiveMigrate: "true",
+					}
+					shoot = *oldShoot.DeepCopy()
+					shoot.Labels = map[string]string{"trigger": "abort"}
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("abort is only allowed while a live control plane migration is in progress")))
+				})
+
+				It("should reject when no live migration is in progress because spec.seedName equals status.seedName", func() {
+					oldShoot.Status.SeedName = oldShoot.Spec.SeedName
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("abort is only allowed while a live control plane migration is in progress")))
+				})
+
+				It("should reject when the shoot's last operation is not in Error state", func() {
+					oldShoot.Status.LastOperation.State = core.LastOperationStateProcessing
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("abort is only allowed while the shoot's last operation is in")))
+				})
+
+				It("should allow when status.LiveMigration is nil", func() {
+					oldShoot.Status.LiveMigration = nil
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					Expect(admissionHandler.Validate(ctx, abortAttrs(), nil)).To(Succeed())
+				})
+
+				It("should allow when DestinationEtcdPeersJoined condition is absent", func() {
+					oldShoot.Status.LiveMigration.Conditions = []core.Condition{
+						{
+							Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationSourceEtcdPreparedForPeerJoin),
+							Status: core.ConditionTrue,
+						},
+					}
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					Expect(admissionHandler.Validate(ctx, abortAttrs(), nil)).To(Succeed())
+				})
+
+				It("should allow when DestinationEtcdPeersJoined failed", func() {
+					oldShoot.Status.LiveMigration.Conditions = []core.Condition{
+						{
+							Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined),
+							Status: core.ConditionFalse,
+						},
+					}
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					Expect(admissionHandler.Validate(ctx, abortAttrs(), nil)).To(Succeed())
+				})
+
+				It("should reject when DestinationEtcdPeersJoined is true", func() {
+					oldShoot.Status.LiveMigration.Conditions = []core.Condition{
+						{
+							Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined),
+							Status: core.ConditionTrue,
+						},
+					}
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("migration has not progressed past")))
+				})
+
+				It("should reject when a later condition is True even if DestinationEtcdPeersJoined is false (re-reconcile)", func() {
+					oldShoot.Status.LiveMigration.Conditions = []core.Condition{
+						{
+							Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined),
+							Status: core.ConditionFalse,
+						},
+						{
+							Type:   core.ConditionType(gardencorev1beta1.ShootLiveMigrationMigrateExtensionsNeededBeforeKubeAPIServer),
+							Status: core.ConditionTrue,
+						},
+					}
+					shoot = *oldShoot.DeepCopy()
+					shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+					err := admissionHandler.Validate(ctx, abortAttrs(), nil)
+					Expect(err).To(BeInvalidError())
+					Expect(err).To(MatchError(ContainSubstring("migration has not progressed past")))
+				})
+			})
 		})
 	})
 })

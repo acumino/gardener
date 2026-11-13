@@ -251,6 +251,31 @@ var _ = Describe("Helper", func() {
 			BeTrue()),
 	)
 
+	DescribeTable("#HasAbortLiveMigrationAnnotation",
+		func(objectMeta metav1.ObjectMeta, match gomegatypes.GomegaMatcher) {
+			Expect(HasAbortLiveMigrationAnnotation(objectMeta.Annotations)).To(match)
+		},
+
+		Entry("annotations not set",
+			metav1.ObjectMeta{},
+			BeFalse()),
+		Entry("abort-live-migrate annotation not present",
+			metav1.ObjectMeta{Annotations: map[string]string{}},
+			BeFalse()),
+		Entry("abort-live-migrate annotation present but value is false",
+			metav1.ObjectMeta{Annotations: map[string]string{v1beta1constants.AnnotationMigrationAbortLiveMigrate: "false"}},
+			BeFalse()),
+		Entry("abort-live-migrate annotation present but value is unparsable",
+			metav1.ObjectMeta{Annotations: map[string]string{v1beta1constants.AnnotationMigrationAbortLiveMigrate: "yes"}},
+			BeFalse()),
+		Entry("abort-live-migrate annotation present and value is true",
+			metav1.ObjectMeta{Annotations: map[string]string{v1beta1constants.AnnotationMigrationAbortLiveMigrate: "true"}},
+			BeTrue()),
+		Entry("abort-live-migrate annotation present and value is 1",
+			metav1.ObjectMeta{Annotations: map[string]string{v1beta1constants.AnnotationMigrationAbortLiveMigrate: "1"}},
+			BeTrue()),
+	)
+
 	var (
 		liveMigratingShoot = func(sourceSeed, destinationSeed string, annotate bool) *gardencorev1beta1.Shoot {
 			shoot := &gardencorev1beta1.Shoot{
@@ -272,6 +297,27 @@ var _ = Describe("Helper", func() {
 		Entry("annotation set and seed changed", liveMigratingShoot("source", "destination", true), BeTrue()),
 		Entry("annotation set but seed unchanged", liveMigratingShoot("seed", "seed", true), BeFalse()),
 		Entry("seed changed but annotation missing", liveMigratingShoot("source", "destination", false), BeFalse()),
+	)
+
+	var (
+		withAbortAnnotation = func(shoot *gardencorev1beta1.Shoot) *gardencorev1beta1.Shoot {
+			if shoot.Annotations == nil {
+				shoot.Annotations = map[string]string{}
+			}
+			shoot.Annotations[v1beta1constants.AnnotationMigrationAbortLiveMigrate] = "true"
+			return shoot
+		}
+	)
+
+	DescribeTable("#IsLiveMigrationAborting",
+		func(shoot *gardencorev1beta1.Shoot, match gomegatypes.GomegaMatcher) {
+			Expect(IsLiveMigrationAborting(shoot)).To(match)
+		},
+
+		Entry("live-migrate and abort annotations set and seed changed", withAbortAnnotation(liveMigratingShoot("source", "destination", true)), BeTrue()),
+		Entry("abort annotation set but live-migrate annotation missing", withAbortAnnotation(liveMigratingShoot("source", "destination", false)), BeFalse()),
+		Entry("live-migrate and abort annotations set but seed unchanged", withAbortAnnotation(liveMigratingShoot("seed", "seed", true)), BeFalse()),
+		Entry("live-migrate annotation set and seed changed but abort annotation missing", liveMigratingShoot("source", "destination", true), BeFalse()),
 	)
 
 	DescribeTable("#GetLiveMigrationRole",
