@@ -98,7 +98,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		return r.deleteShoot(ctx, log, shoot)
 	}
 
-	if liveMigrationRole != v1beta1helper.LiveMigrationRoleNone {
+	if liveMigrationRole != v1beta1helper.LiveMigrationRoleNone || shoot.Status.LiveMigration != nil {
 		return r.liveMigrateShoot(ctx, log, shoot, liveMigrationRole)
 	}
 
@@ -208,6 +208,27 @@ func (r *Reconciler) migrateShoot(ctx context.Context, log logr.Logger, shoot *g
 
 func (r *Reconciler) liveMigrateShoot(ctx context.Context, log logr.Logger, shoot *gardencorev1beta1.Shoot, role v1beta1helper.LiveMigrationRole) (reconcile.Result, error) {
 	log = log.WithValues("operation", "live-migrate", "liveMigrationRole", role)
+
+	if role == v1beta1helper.LiveMigrationRoleNone {
+		pivotIdx := slices.Index(v1beta1helper.LiveMigrationConditionOrder, gardencorev1beta1.ShootLiveMigrationDestinationEtcdPeersJoined)
+		if shoot.Status.LiveMigration != nil && slices.ContainsFunc(shoot.Status.LiveMigration.Conditions, func(cond gardencorev1beta1.Condition) bool {
+			return cond.Status == gardencorev1beta1.ConditionTrue &&
+				slices.Contains(v1beta1helper.LiveMigrationConditionOrder[pivotIdx:], cond.Type)
+		}) {
+			err := fmt.Errorf("destination etcd members have already joined; add the %q annotation to properly abort the live migration", v1beta1constants.AnnotationMigrationAbortLiveMigrate)
+			updateErr := r.patchShootStatusOperationError(ctx, shoot, err.Error(), gardencorev1beta1.LastOperationTypeLiveMigrate, false)
+			return reconcile.Result{}, errorsutils.WithSuppressed(err, updateErr)
+		}
+		if v1beta1helper.HasLiveMigrationAnnotation(shoot.Annotations) {
+			patch := client.MergeFrom(shoot.DeepCopy())
+			delete(shoot.Annotations, v1beta1constants.AnnotationMigrationLiveMigrate)
+			if err := r.GardenClient.Patch(ctx, shoot, patch); err != nil {
+				return reconcile.Result{}, fmt.Errorf("failed to remove stale live migration annotation: %w", err)
+			}
+		}
+		log.Info("Live control plane migration completed (recovery)")
+		return reconcile.Result{}, r.patchShootStatusOperationSuccess(ctx, shoot, gardencorev1beta1.LastOperationTypeLiveMigrate)
+	}
 
 	if err := r.checkGardenletVersionParity(ctx, shoot, role); err != nil {
 		updateErr := r.patchShootStatusOperationError(ctx, shoot, err.Error(), gardencorev1beta1.LastOperationTypeLiveMigrate, false)
